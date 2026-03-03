@@ -1,5 +1,6 @@
 package com.whu.graduation.taskincentive.service;
 
+import com.whu.graduation.taskincentive.dao.entity.Badge;
 import com.whu.graduation.taskincentive.dao.entity.UserRewardRecord;
 
 import java.util.List;
@@ -29,13 +30,6 @@ public interface UserRewardRecordService {
      * @return 奖励记录列表
      */
     List<UserRewardRecord> selectByUserId(Long userId);
-
-    /**
-     * 查询用户已获得的所有徽章
-     * @param userId 用户ID
-     * @return 徽章类型列表
-     */
-    List<String> selectUserBadges(Long userId);
 
     /**
      * 查询用户未领取的实物奖励

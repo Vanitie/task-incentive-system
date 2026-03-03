@@ -1,8 +1,12 @@
 package com.whu.graduation.taskincentive.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.whu.graduation.taskincentive.dao.entity.Badge;
+import com.whu.graduation.taskincentive.dao.entity.UserBadge;
 import com.whu.graduation.taskincentive.dao.entity.UserRewardRecord;
+import com.whu.graduation.taskincentive.dao.mapper.BadgeMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserRewardRecordMapper;
 import com.whu.graduation.taskincentive.service.UserRewardRecordService;
 import lombok.RequiredArgsConstructor;
@@ -55,19 +59,16 @@ public class UserRewardRecordServiceImpl extends ServiceImpl<UserRewardRecordMap
     }
 
     @Override
-    public List<String> selectUserBadges(Long userId) {
-        List<UserRewardRecord> rewardRecordList = userRewardRecordMapper.selectUserBadges(userId);
-        List<String> badges = new ArrayList<>(rewardRecordList.size());
-        return new ArrayList<>();
-    }
-
-    @Override
     public List<UserRewardRecord> selectUnclaimedPhysicalReward(Long userId) {
-        return new ArrayList<>();
+        return userRewardRecordMapper.selectUnclaimedPhysicalRewards(userId);
     }
 
     @Override
     public List<UserRewardRecord> selectByStatus(Long userId, Integer status) {
-        return new ArrayList<>();
+        return super.list(lambdaQuery()
+                .eq(UserRewardRecord::getUserId, userId)
+                .eq(UserRewardRecord::getStatus, status)
+                .orderByAsc(UserRewardRecord::getCreateTime)
+        );
     }
 }

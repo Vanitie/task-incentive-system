@@ -65,5 +65,5 @@ public interface UserActionLogService {
      * @param actionType 行为类型，可为null表示统计所有行为
      * @return 行为总数
      */
-    Integer countUserAction(Long userId, String actionType);
+    Long countUserAction(Long userId, String actionType);
 }

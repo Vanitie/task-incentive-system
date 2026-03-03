@@ -18,12 +18,6 @@ public interface UserRewardRecordMapper extends BaseMapper<UserRewardRecord> {
     List<UserRewardRecord> selectByUserId(@Param("userId") Long userId);
 
     /**
-     * 查询用户所有徽章
-     */
-    @Select("SELECT * FROM user_reward_record WHERE user_id = #{userId} AND reward_type = 'REWARD_BADGE'")
-    List<UserRewardRecord> selectUserBadges(@Param("userId") Long userId);
-
-    /**
      * 查询用户未领取实物奖励
      */
     @Select("SELECT * FROM user_reward_record WHERE user_id = #{userId} AND reward_type = 'REWARD_PHYSICAL' AND status = 0")

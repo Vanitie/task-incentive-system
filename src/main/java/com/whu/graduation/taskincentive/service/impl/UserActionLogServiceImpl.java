@@ -58,4 +58,12 @@ public class UserActionLogServiceImpl extends ServiceImpl<UserActionLogMapper, U
     public List<UserActionLog> selectByActionType(String actionType) {
         return this.baseMapper.selectByActionType(actionType);
     }
+
+    @Override
+    public Long countUserAction(Long userId, String actionType) {
+        return super.count(lambdaQuery()
+                .eq(UserActionLog::getUserId,userId)
+                .eq(UserActionLog::getActionType,actionType)
+        );
+    }
 }
