@@ -38,11 +38,9 @@ public interface TaskStockService {
     TaskStock getById(Long taskId);
 
     /**
-     * 扣减库存（乐观锁）
      * @param taskId 任务ID
      * @param count 扣减数量
-     * @param version 当前版本号
      * @return true表示扣减成功，false表示库存不足或版本不匹配
      */
-    boolean deductStock(Long taskId, Integer count, Integer version);
+    boolean deductStock(Long taskId, Integer count);
 }

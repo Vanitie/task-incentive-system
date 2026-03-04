@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 import java.util.Date;
 
 /**
- * 任务配置实体
+ * 任务模板实体
  */
 @Data
 @Builder
@@ -41,9 +41,9 @@ public class TaskConfig {
     private String triggerEvent;
 
     /**
-     * 完成目标次数或时长
+     * 任务策略配置 JSON，例如目标值、连续天数、阶梯规则等
      */
-    private Integer targetValue;
+    private String ruleConfig;
 
     /**
      * 奖励类型：积分 REWARD_POINT / 徽章 REWARD_BADGE / 实物 REWARD_PHYSICAL
@@ -61,6 +61,11 @@ public class TaskConfig {
     private Integer totalStock;
 
     /**
+     * 任务状态：停用 STATUS_DISABLED 0 / 启用 STATUS_ENABLED 1
+     */
+    private Integer status;
+
+    /**
      * 任务开始时间
      */
     private Date startTime;
@@ -69,11 +74,6 @@ public class TaskConfig {
      * 任务结束时间
      */
     private Date endTime;
-
-    /**
-     * 任务状态：停用 STATUS_DISABLED / 启用 STATUS_ENABLED
-     */
-    private Integer status;
 
     /**
      * 创建时间

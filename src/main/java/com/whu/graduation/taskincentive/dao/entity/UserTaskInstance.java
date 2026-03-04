@@ -11,17 +11,17 @@ import lombok.NoArgsConstructor;
 import java.util.Date;
 
 /**
- * 用户任务进度实体
+ * 用户任务实例实体（动态进度）
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("user_task_progress")
-public class UserTaskProgress {
+@TableName("user_task_instance")
+public class UserTaskInstance {
 
     /**
-     * 进度ID
+     * 实例ID
      */
     private Long id;
 
@@ -44,6 +44,16 @@ public class UserTaskProgress {
      * 任务完成状态：未完成 STATUS_INCOMPLETE / 已完成 STATUS_COMPLETED
      */
     private Integer status;
+
+    /**
+     * 乐观锁版本号
+     */
+    private Integer version;
+
+    /**
+     * 扩展数据 JSON，例如连续签到天数、阶段完成状态等
+     */
+    private String extraData;
 
     /**
      * 创建时间

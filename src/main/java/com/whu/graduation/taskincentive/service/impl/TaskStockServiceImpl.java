@@ -40,8 +40,8 @@ public class TaskStockServiceImpl extends ServiceImpl<TaskStockMapper, TaskStock
     }
 
     @Override
-    public boolean deductStock(Long taskId, Integer count, Integer version) {
-        int affected = this.baseMapper.deductStock(taskId, count, version);
+    public boolean deductStock(Long taskId, Integer count) {
+        int affected = this.baseMapper.deductStock(taskId, count);
         return affected > 0;
     }
 }
