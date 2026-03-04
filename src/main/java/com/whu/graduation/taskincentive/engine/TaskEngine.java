@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -43,10 +44,9 @@ public class TaskEngine {
     private RedisTemplate<String, String> redisTemplate;
 
     @Autowired
-    @Qualifier("dbWriteExecutor")
-    private ExecutorService dbWriteExecutor;
+    private KafkaTemplate<String, String> kafkaTemplate;
 
-    private static final String RETRY_QUEUE_KEY = "userTask:retryQueue";
+    private static final String TASK_TOPIC = "task-persist-topic";
 
     // 本地缓存：TaskConfig，key = taskId
     private final Cache<Long, TaskConfig> localTaskConfigCache = Caffeine.newBuilder()
@@ -138,37 +138,10 @@ public class TaskEngine {
         String redisKey = buildUserTaskKey(instance.getUserId(), instance.getTaskId());
         redisTemplate.opsForValue().set(redisKey, JSON.toJSONString(instance));
 
-        dbWriteExecutor.submit(() -> asyncUpdateWithRetry(instance));
-    }
-
-    /**
-     * 异步落库 + 乐观锁重试
-     */
-    private void asyncUpdateWithRetry(UserTaskInstance instance) {
-
-        int retry = 0;
-        int maxRetry = 3;
-
-        while (retry < maxRetry) {
-            try {
-                int rows = instanceService.updateWithVersion(instance);
-                if (rows == 1) {
-                    return; // 成功
-                }
-                // 版本冲突 → 重新加载最新版本
-                UserTaskInstance latest =
-                        instanceService.getById(instance.getId());
-                instance.setVersion(latest.getVersion());
-                retry++;
-            } catch (Exception e) {
-                log.error("异步更新失败 userId={} taskId={}",
-                        instance.getUserId(), instance.getTaskId(), e);
-                retry++;
-            }
-        }
-        // 多次失败 → 进入重试队列
-        redisTemplate.opsForList().rightPush(
-                RETRY_QUEUE_KEY,
+        kafkaTemplate.send(
+                TASK_TOPIC,
+                //以userid作为key，使得同一个用户的消息都送入同一个partition，利用partition的顺序性保证消息顺序性
+                instance.getUserId().toString(),
                 JSON.toJSONString(instance)
         );
     }

@@ -66,6 +66,12 @@
             <version>3.1.8</version>
         </dependency>
 
+        <!-- Kafka -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
         <!-- Cache -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
