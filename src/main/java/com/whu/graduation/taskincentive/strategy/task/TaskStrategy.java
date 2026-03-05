@@ -1,4 +1,4 @@
-package com.whu.graduation.taskincentive.engine.strategy;
+package com.whu.graduation.taskincentive.strategy.task;
 
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;

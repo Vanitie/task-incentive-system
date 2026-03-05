@@ -1,4 +1,4 @@
-package com.whu.graduation.taskincentive.engine.strategy;
+package com.whu.graduation.taskincentive.strategy.task;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;

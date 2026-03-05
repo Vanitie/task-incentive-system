@@ -1,6 +1,5 @@
-package com.whu.graduation.taskincentive.engine.strategy;
+package com.whu.graduation.taskincentive.strategy.task;
 
-import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
@@ -9,8 +8,6 @@ import com.whu.graduation.taskincentive.service.TaskStockService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-
-import java.time.LocalDate;
 
 /**
  * 限量任务策略

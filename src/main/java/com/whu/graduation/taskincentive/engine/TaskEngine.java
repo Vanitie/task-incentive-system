@@ -1,24 +1,27 @@
 package com.whu.graduation.taskincentive.engine;
 
 import com.alibaba.fastjson.JSON;
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.whu.graduation.taskincentive.common.enums.RewardType;
+import com.whu.graduation.taskincentive.common.enums.StockType;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
+import com.whu.graduation.taskincentive.dto.Reward;
 import com.whu.graduation.taskincentive.event.UserEvent;
-import com.whu.graduation.taskincentive.engine.strategy.TaskStrategy;
+import com.whu.graduation.taskincentive.service.RewardService;
+import com.whu.graduation.taskincentive.strategy.task.TaskStrategy;
 import com.whu.graduation.taskincentive.service.UserTaskInstanceService;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -34,11 +37,11 @@ public class TaskEngine {
     @Autowired
     private UserTaskInstanceService instanceService;
 
-//    @Autowired
-//    private UserRewardService rewardService;
-
     @Autowired
     private TaskConfigService taskConfigService;
+
+    @Autowired
+    private RewardService rewardService;
 
     @Autowired
     private RedisTemplate<String, String> redisTemplate;
@@ -74,7 +77,25 @@ public class TaskEngine {
             // 4. 执行策略
             TaskStrategy strategy = strategies.get(taskConfig.getTaskType());
             if (strategy.execute(event, taskConfig, instance)) {
-                // TODO: 奖励发放逻辑
+                // 1. 根据 totalStock 判断库存类型
+                StockType stockType;
+                if (taskConfig.getTotalStock() != null && taskConfig.getTotalStock() > 0) {
+                    stockType = StockType.LIMITED;
+                } else {
+                    stockType = StockType.UNLIMITED;
+                }
+
+                // 2. 构建 Reward 对象
+                Reward reward = Reward.builder()
+                        .rewardId(IdWorker.getId())
+                        .taskId(taskId)
+                        .rewardType(RewardType.valueOf(taskConfig.getRewardType().toUpperCase()))
+                        .amount(taskConfig.getRewardValue())
+                        .stockType(stockType)
+                        .build();
+
+                // 3. 发放奖励
+                rewardService.grantReward(event.getUserId(), reward);
             }
 
             // 5. 更新用户任务实例

@@ -19,4 +19,6 @@ public interface UserBadgeService {
     List<UserBadge> listAll();
 
     List<UserBadge> listByUserId(Long userId);
+
+    boolean grantBadge(Long userId, Integer badgeCode);
 }

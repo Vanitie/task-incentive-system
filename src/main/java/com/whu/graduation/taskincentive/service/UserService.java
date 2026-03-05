@@ -33,7 +33,7 @@ public interface UserService {
     /**
      * 更新用户积分
      * @param userId 用户ID
-     * @param points 积分值，可为正或负
+     * @param points 积分变化值，可为正或负
      * @return true表示更新成功
      */
     boolean updateUserPoints(Long userId, Integer points);

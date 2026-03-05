@@ -9,6 +9,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.kafka.support.Acknowledgment;
 import com.alibaba.fastjson.JSON;
 
+/**
+ * 任务进度落库消费者
+ */
 @Slf4j
 @Component
 public class TaskPersistenceConsumer {

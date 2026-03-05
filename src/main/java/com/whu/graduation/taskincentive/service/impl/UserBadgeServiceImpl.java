@@ -2,13 +2,17 @@ package com.whu.graduation.taskincentive.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.whu.graduation.taskincentive.dao.entity.Badge;
 import com.whu.graduation.taskincentive.dao.entity.UserBadge;
+import com.whu.graduation.taskincentive.dao.mapper.BadgeMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserBadgeMapper;
 import com.whu.graduation.taskincentive.service.UserBadgeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Date;
 import java.util.List;
 
 /**
@@ -19,6 +23,10 @@ import java.util.List;
 @RequiredArgsConstructor
 public class UserBadgeServiceImpl extends ServiceImpl<UserBadgeMapper, UserBadge>
         implements UserBadgeService {
+
+    private final UserBadgeMapper userBadgeMapper;
+
+    private final BadgeMapper badgeMapper;
 
     @Override
     public boolean save(UserBadge userBadge) {
@@ -51,5 +59,41 @@ public class UserBadgeServiceImpl extends ServiceImpl<UserBadgeMapper, UserBadge
         return super.list(
                 lambdaQuery().eq(UserBadge::getUserId, userId)
         );
+    }
+
+    @Override
+    @Transactional
+    public boolean grantBadge(Long userId, Integer badgeCode) {
+
+        // 1 查询徽章
+        Badge badge = badgeMapper.selectById(badgeCode);
+
+        if (badge == null) {
+            log.error("徽章不存在 code={}", badgeCode);
+            return false;
+        }
+
+        Long badgeId = badge.getId();
+
+        // 2 幂等检查（防重复发）
+        UserBadge exist = userBadgeMapper.selectUserBadge(userId, badgeId);
+
+        if (exist != null) {
+            log.info("用户已拥有该徽章 userId={} badgeId={}",
+                    userId, badgeId);
+            return true;
+        }
+
+        // 3 创建记录
+        UserBadge userBadge = new UserBadge();
+
+        userBadge.setId(IdWorker.getId());
+        userBadge.setUserId(userId);
+        userBadge.setBadgeId(badgeId);
+        userBadge.setAcquireTime(new Date());
+
+        userBadgeMapper.insert(userBadge);
+
+        return true;
     }
 }

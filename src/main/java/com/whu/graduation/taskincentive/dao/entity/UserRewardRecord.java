@@ -39,7 +39,7 @@ public class UserRewardRecord {
     private String rewardType;
 
     /**
-     * 奖励状态（仅实物奖励有效）：未领取 STATUS_PENDING / 已领取 STATUS_CLAIMED
+     * 奖励状态（仅实物奖励有效）：未领取 0 / 已领取 1
      */
     private Integer status;
 
