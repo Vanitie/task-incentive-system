@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 任务配置服务接口
@@ -68,4 +69,16 @@ public interface TaskConfigService {
      * @return 分页后的任务列表
      */
     Page<TaskConfig> selectByStatusPage(Page<TaskConfig> page, Integer status);
+
+    // ---- new service-level methods ----
+
+    /**
+     * 多级缓存获取 TaskConfig（本地->Redis->DB）
+     */
+    TaskConfig getTaskConfig(Long taskId);
+
+    /**
+     * 根据事件类型获取关联的 taskId 列表（由 service 维护 Redis set 或 DB 关联表）
+     */
+    Set<String> getTaskIdsByEventType(String eventType);
 }

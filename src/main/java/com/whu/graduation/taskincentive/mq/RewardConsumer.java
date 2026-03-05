@@ -8,9 +8,10 @@ import com.whu.graduation.taskincentive.dto.Reward;
 import com.whu.graduation.taskincentive.service.UserRewardRecordService;
 import com.whu.graduation.taskincentive.strategy.reward.RewardStrategy;
 import jakarta.annotation.PostConstruct;
-import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 发放奖励消费者
@@ -34,6 +36,11 @@ public class RewardConsumer {
     private final UserRewardRecordService recordService;
 
     private Map<RewardType, RewardStrategy> rewardStrategies;
+
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+
+    private static final String DEDUP_KEY = "mq:reward:processed";
 
     @PostConstruct
     public void init() {
@@ -50,6 +57,19 @@ public class RewardConsumer {
     public void consume(String message) {
 
         JSONObject json = JSON.parseObject(message);
+
+        String messageId = json.getString("messageId");
+        if (messageId == null) {
+            log.warn("reward message without messageId, processing but risk duplication");
+        } else {
+            Boolean exists = redisTemplate.opsForSet().isMember(DEDUP_KEY, messageId);
+            if (Boolean.TRUE.equals(exists)) {
+                log.info("duplicate reward message ignored messageId={}", messageId);
+                return;
+            }
+            // mark processed with TTL
+            try { redisTemplate.opsForSet().add(DEDUP_KEY, messageId); redisTemplate.expire(DEDUP_KEY, 7, TimeUnit.DAYS); } catch (Exception ignore){}
+        }
 
         Long userId = json.getLong("userId");
 

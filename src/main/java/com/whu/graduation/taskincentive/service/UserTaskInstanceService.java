@@ -32,4 +32,27 @@ public interface UserTaskInstanceService {
      * @return 影响行数
      */
     int updateWithVersion(UserTaskInstance instance);
+
+    // ---- new service-level methods ----
+
+    /**
+     * 带本地/Redis 缓存包装的 getOrCreate
+     */
+    UserTaskInstance getOrCreateWithCache(Long userId, Long taskId);
+
+    /**
+     * 更新缓存并发布异步持久化消息（Kafka）
+     */
+    void updateAndPublish(UserTaskInstance instance);
+
+    /**
+     * 仅获取用户已接取的任务实例；不自动创建新实例。
+     * 返回 null 表示用户未接取该任务（或未找到实例）
+     */
+    UserTaskInstance getAcceptedInstance(Long userId, Long taskId);
+
+    /**
+     * 用户接取任务（幂等）：如果用户未接取则创建状态为 ACCEPTED 的实例并写缓存
+     */
+    UserTaskInstance acceptTask(Long userId, Long taskId);
 }

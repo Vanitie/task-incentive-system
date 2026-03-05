@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
+import java.util.UUID;
+
 /**
  * 发放奖励生产者
  */
@@ -23,6 +25,7 @@ public class RewardProducer {
 
         JSONObject msg = new JSONObject();
 
+        msg.put("messageId", UUID.randomUUID().toString());
         msg.put("userId", userId);
         msg.put("reward", reward);
 
