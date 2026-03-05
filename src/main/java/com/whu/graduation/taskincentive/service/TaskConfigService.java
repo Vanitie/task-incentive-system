@@ -81,4 +81,14 @@ public interface TaskConfigService {
      * 根据事件类型获取关联的 taskId 列表（由 service 维护 Redis set 或 DB 关联表）
      */
     Set<String> getTaskIdsByEventType(String eventType);
+
+    /**
+     * 使本地缓存失效（由事件触发）
+     */
+    void invalidateTaskConfig(Long taskId);
+
+    /**
+     * 主动从 Redis/DB 拉取最新并刷新本地缓存
+     */
+    void refreshTaskConfig(Long taskId);
 }

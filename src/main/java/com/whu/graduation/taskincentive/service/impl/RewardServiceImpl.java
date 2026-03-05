@@ -2,6 +2,8 @@ package com.whu.graduation.taskincentive.service.impl;
 
 import com.whu.graduation.taskincentive.common.enums.RewardType;
 import com.whu.graduation.taskincentive.common.enums.StockType;
+import com.whu.graduation.taskincentive.common.error.BusinessException;
+import com.whu.graduation.taskincentive.common.error.ErrorCode;
 import com.whu.graduation.taskincentive.dto.Reward;
 import com.whu.graduation.taskincentive.mq.RewardProducer;
 import com.whu.graduation.taskincentive.service.RewardService;
@@ -9,7 +11,6 @@ import com.whu.graduation.taskincentive.strategy.reward.RewardStrategy;
 import com.whu.graduation.taskincentive.strategy.reward.StockStrategy;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -62,13 +63,13 @@ public class RewardServiceImpl implements RewardService {
         StockStrategy stockStrategy = stockStrategies.get(reward.getStockType());
         if(stockStrategy == null){
             log.error("未知库存类型 {}", reward.getStockType());
-            return false;
+            throw new BusinessException(ErrorCode.UNKNOWN_STOCK_TYPE);
         }
         boolean success = stockStrategy.acquireStock(reward.getRewardId());
 
         if (!success) {
             log.warn("库存不足 rewardCode={}", reward.getCode());
-            return false;
+            throw new BusinessException(ErrorCode.STOCK_INSUFFICIENT);
         }
         rewardProducer.sendReward(userId, reward);
         return true;

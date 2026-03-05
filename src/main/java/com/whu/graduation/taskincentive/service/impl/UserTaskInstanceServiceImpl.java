@@ -5,6 +5,8 @@ import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.whu.graduation.taskincentive.common.enums.UserTaskStatus;
+import com.whu.graduation.taskincentive.common.error.BusinessException;
+import com.whu.graduation.taskincentive.common.error.ErrorCode;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
 import com.whu.graduation.taskincentive.dao.mapper.UserTaskInstanceMapper;
@@ -188,20 +190,20 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
         TaskConfig config = taskConfigService.getTaskConfig(taskId);
         if (config == null) {
             log.warn("taskConfig not found for taskId={}", taskId);
-            return null;
+            throw new BusinessException(ErrorCode.TASK_NOT_FOUND);
         }
         if (config.getStatus() == null || config.getStatus() != 1) {
             log.warn("task {} is not enabled", taskId);
-            return null;
+            throw new BusinessException(ErrorCode.TASK_NOT_ENABLED);
         }
         Date now = new Date();
         if (config.getStartTime() != null && now.before(config.getStartTime())) {
             log.warn("task {} not started yet", taskId);
-            return null;
+            throw new BusinessException(ErrorCode.TASK_NOT_STARTED);
         }
         if (config.getEndTime() != null && now.after(config.getEndTime())) {
             log.warn("task {} already ended", taskId);
-            return null;
+            throw new BusinessException(ErrorCode.TASK_ALREADY_ENDED);
         }
 
         // try fetch from DB
@@ -209,6 +211,7 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
         if (instance != null) {
             // already exists
             if (instance.getStatus() != null && instance.getStatus() > 0) {
+                // 已接取或更后状态，幂等返回
                 return instance; // already accepted or beyond
             }
             // else update status to ACCEPTED
@@ -242,7 +245,7 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
             if (instance != null && instance.getStatus() != null && instance.getStatus() > 0) {
                 return instance;
             }
-            return null;
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "接取任务失败");
         }
     }
 }

@@ -34,7 +34,7 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
     @Autowired
     private RedisTemplate<String, String> redisTemplate;
 
-    // local cache
+    // 本地缓存
     private final Cache<Long, TaskConfig> localTaskConfigCache = Caffeine.newBuilder()
             .maximumSize(1024)
             .expireAfterWrite(30, TimeUnit.MINUTES)
@@ -116,6 +116,41 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
     }
 
     @Override
+    public void invalidateTaskConfig(Long taskId) {
+        localTaskConfigCache.invalidate(taskId);
+    }
+
+    @Override
+    public void refreshTaskConfig(Long taskId) {
+        String key = "taskConfig:" + taskId;
+        // 尝试从 Redis 获取最新配置并刷新本地缓存
+        try {
+            String json = redisTemplate.opsForValue().get(key);
+            if (json != null) {
+                TaskConfig config = JSON.parseObject(json, TaskConfig.class);
+                localTaskConfigCache.put(taskId, config);
+                return;
+            }
+        } catch (Exception e) {
+            log.warn("refresh read from redis failed, key={}, err={}", key, e.getMessage());
+        }
+
+        // 从 DB 获取最新配置并刷新 Redis + 本地缓存
+        TaskConfig config = super.getById(taskId);
+        if (config != null) {
+            try {
+                redisTemplate.opsForValue().set(key, JSON.toJSONString(config), 60, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                log.debug("refresh write to redis failed, key={}, err={}", key, e.getMessage());
+            }
+            localTaskConfigCache.put(taskId, config);
+        } else {
+            // DB 中已不存在该配置，清除 Redis 和本地缓存
+            localTaskConfigCache.invalidate(taskId);
+        }
+    }
+
+    @Override
     public Set<String> getTaskIdsByEventType(String eventType) {
         String key = "event:" + eventType;
         try {
@@ -125,7 +160,7 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
             log.warn("read event->task set from redis failed, key={}, err={}", key, e.getMessage());
         }
 
-        // fallback: query DB by triggerEvent
+        // 从 DB 查询关联的 taskId 列表并回填 Redis
         try {
             List<TaskConfig> list = this.baseMapper.selectList(new QueryWrapper<TaskConfig>().eq("trigger_event", eventType));
             if (list != null && !list.isEmpty()) {
