@@ -1,0 +1,49 @@
+package com.whu.graduation.taskincentive.controller;
+
+import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
+import com.whu.graduation.taskincentive.service.TaskConfigService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+/**
+ * 任务配置控制器
+ */
+@RestController
+@RequestMapping("/api/task-config")
+public class TaskConfigController {
+
+    @Autowired
+    private TaskConfigService taskConfigService;
+
+    /** 查询所有任务配置 */
+    @GetMapping("/list")
+    public List<TaskConfig> listAll(){
+        return taskConfigService.listAll();
+    }
+
+    /** 根据ID查询 */
+    @GetMapping("/{id}")
+    public TaskConfig getById(@PathVariable Long id){
+        return taskConfigService.getById(id);
+    }
+
+    /** 新增任务配置 */
+    @PostMapping("/create")
+    public boolean create(@RequestBody TaskConfig taskConfig){
+        return taskConfigService.save(taskConfig);
+    }
+
+    /** 更新任务配置 */
+    @PutMapping("/update")
+    public boolean update(@RequestBody TaskConfig taskConfig){
+        return taskConfigService.update(taskConfig);
+    }
+
+    /** 删除任务配置 */
+    @DeleteMapping("/{id}")
+    public boolean delete(@PathVariable Long id){
+        return taskConfigService.deleteById(id);
+    }
+}
