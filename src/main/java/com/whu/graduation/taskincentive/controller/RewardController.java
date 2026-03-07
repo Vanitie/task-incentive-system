@@ -3,6 +3,7 @@ package com.whu.graduation.taskincentive.controller;
 import com.whu.graduation.taskincentive.dto.Reward;
 import com.whu.graduation.taskincentive.service.RewardService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -17,6 +18,7 @@ public class RewardController {
 
     /** 主动发放奖励（主要用于测试或后台操作） */
     @PostMapping("/grant")
+    @PreAuthorize("hasRole('ADMIN')")
     public boolean grant(@RequestParam Long userId, @RequestBody Reward reward){
         return rewardService.grantReward(userId, reward);
     }

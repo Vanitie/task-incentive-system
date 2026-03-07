@@ -4,6 +4,7 @@ import com.alibaba.fastjson.JSON;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.whu.graduation.taskincentive.constant.CacheKeys;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.mapper.TaskConfigMapper;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
@@ -90,7 +91,7 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
         if (config != null) return config;
 
         //2.Redis缓存
-        String key = "taskConfig:" + taskId;
+        String key = CacheKeys.TASK_CONFIG_PREFIX + taskId;
         String json = redisTemplate.opsForValue().get(key);
         if (json != null) {
             try {
@@ -122,7 +123,7 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
 
     @Override
     public void refreshTaskConfig(Long taskId) {
-        String key = "taskConfig:" + taskId;
+        String key = CacheKeys.TASK_CONFIG_PREFIX + taskId;
         // 尝试从 Redis 获取最新配置并刷新本地缓存
         try {
             String json = redisTemplate.opsForValue().get(key);
@@ -152,7 +153,7 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
 
     @Override
     public Set<String> getTaskIdsByEventType(String eventType) {
-        String key = "event:" + eventType;
+        String key = CacheKeys.EVENT_TASKS_PREFIX + eventType;
         try {
             Set<String> members = redisTemplate.opsForSet().members(key);
             if (members != null && !members.isEmpty()) return members;
@@ -175,4 +176,3 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
         return java.util.Collections.emptySet();
     }
 }
-

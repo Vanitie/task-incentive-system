@@ -26,3 +26,12 @@ spring:
 
 server:
   port: 8080
+
+# 简单认证配置（用于初期管理端）。生产环境请接入 OAuth2/LDAP 等
+app:
+  security:
+    admin:
+      username: admin
+      password: admin123
+  dlq:
+    topic: dlq-topic

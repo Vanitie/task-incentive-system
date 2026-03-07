@@ -7,6 +7,7 @@ import com.whu.graduation.taskincentive.dao.entity.UserRewardRecord;
 import com.whu.graduation.taskincentive.dto.Reward;
 import com.whu.graduation.taskincentive.service.UserRewardRecordService;
 import com.whu.graduation.taskincentive.strategy.reward.RewardStrategy;
+import com.whu.graduation.taskincentive.constant.CacheKeys;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,11 +41,13 @@ public class RewardConsumer {
     @Autowired
     private RedisTemplate<String, String> redisTemplate;
 
-    private static final String DEDUP_KEY = "mq:reward:processed";
+    @Autowired
+    private ErrorPublisher errorPublisher;
+
+    private long dedupTtlDays = CacheKeys.DEFAULT_DEDUP_TTL_DAYS;
 
     @PostConstruct
     public void init() {
-
         rewardStrategies = rewardStrategyList.stream()
                 .collect(Collectors.toMap(
                         RewardStrategy::getType,
@@ -62,13 +65,18 @@ public class RewardConsumer {
         if (messageId == null) {
             log.warn("reward message without messageId, processing but risk duplication");
         } else {
-            Boolean exists = redisTemplate.opsForSet().isMember(DEDUP_KEY, messageId);
-            if (Boolean.TRUE.equals(exists)) {
-                log.info("duplicate reward message ignored messageId={}", messageId);
-                return;
+            String dedupKey = CacheKeys.DEDUP_MSG_PREFIX + messageId;
+            try {
+                Boolean exists = redisTemplate.hasKey(dedupKey);
+                if (Boolean.TRUE.equals(exists)) {
+                    log.info("duplicate reward message ignored messageId={}", messageId);
+                    return;
+                }
+                // mark processed with TTL
+                redisTemplate.opsForValue().setIfAbsent(dedupKey, "1", dedupTtlDays, TimeUnit.DAYS);
+            } catch (Exception ignore) {
+                log.warn("failed to operate redis dedup for reward messageId={}, err={}", messageId, ignore.getMessage());
             }
-            // mark processed with TTL
-            try { redisTemplate.opsForSet().add(DEDUP_KEY, messageId); redisTemplate.expire(DEDUP_KEY, 7, TimeUnit.DAYS); } catch (Exception ignore){}
         }
 
         Long userId = json.getLong("userId");
@@ -83,19 +91,25 @@ public class RewardConsumer {
             return;
         }
 
-        // 1 发放奖励
-        strategy.grantReward(userId, reward);
+        try {
+            // 1 发放奖励
+            strategy.grantReward(userId, reward);
 
-        UserRewardRecord userRewardRecord = UserRewardRecord.builder()
-                .userId(userId)
-                .taskId(reward.getTaskId())
-                .rewardType(reward.getRewardType().toString())
-                .status(0)
-                .rewardValue(reward.getAmount())
-                .createTime(new Date())
-                .build();
+            UserRewardRecord userRewardRecord = UserRewardRecord.builder()
+                    .userId(userId)
+                    .taskId(reward.getTaskId())
+                    .rewardType(reward.getRewardType().toString())
+                    .status(0)
+                    .rewardValue(reward.getAmount())
+                    .createTime(new Date())
+                    .build();
 
-        // 2 写奖励日志
-        recordService.save(userRewardRecord);
+            // 2 写奖励日志
+            recordService.save(userRewardRecord);
+        } catch (Exception e) {
+            log.error("reward processing failed, sending to DLQ, messageId={}", messageId, e);
+            try { errorPublisher.publishToDlq("reward-topic", message, messageId, e.getMessage()); } catch (Exception ignored) {}
+            throw e;
+        }
     }
 }

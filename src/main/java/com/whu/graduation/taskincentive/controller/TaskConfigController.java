@@ -4,6 +4,7 @@ import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import java.util.List;
 
@@ -19,30 +20,35 @@ public class TaskConfigController {
 
     /** 查询所有任务配置 */
     @GetMapping("/list")
+    @PreAuthorize("hasRole('ADMIN')")
     public List<TaskConfig> listAll(){
         return taskConfigService.listAll();
     }
 
     /** 根据ID查询 */
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public TaskConfig getById(@PathVariable Long id){
         return taskConfigService.getById(id);
     }
 
     /** 新增任务配置 */
     @PostMapping("/create")
+    @PreAuthorize("hasRole('ADMIN')")
     public boolean create(@RequestBody TaskConfig taskConfig){
         return taskConfigService.save(taskConfig);
     }
 
     /** 更新任务配置 */
     @PutMapping("/update")
+    @PreAuthorize("hasRole('ADMIN')")
     public boolean update(@RequestBody TaskConfig taskConfig){
         return taskConfigService.update(taskConfig);
     }
 
     /** 删除任务配置 */
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public boolean delete(@PathVariable Long id){
         return taskConfigService.deleteById(id);
     }
