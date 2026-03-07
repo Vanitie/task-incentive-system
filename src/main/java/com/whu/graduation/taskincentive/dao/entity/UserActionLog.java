@@ -43,5 +43,6 @@ public class UserActionLog {
     /**
      * 行为发生时间
      */
+    @TableField(fill = FieldFill.INSERT)
     private Date createTime;
 }

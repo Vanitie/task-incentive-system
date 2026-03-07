@@ -1,5 +1,7 @@
 package com.whu.graduation.taskincentive.dao.entity;
 
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -18,11 +20,24 @@ import java.util.Date;
 @TableName("user_badge")
 public class UserBadge {
 
-    private Long id; // 雪花ID
+    /**
+     * 雪花ID
+     */
+    private Long id;
 
-    private Long userId; // 用户ID
+    /**
+     * 用户ID
+     */
+    private Long userId;
 
-    private Long badgeId; // 徽章ID
+    /**
+     * 徽章ID
+     */
+    private Long badgeId;
 
-    private Date acquireTime; // 获得时间
+    /**
+     * 获得时间
+     */
+    @TableField(fill = FieldFill.INSERT)
+    private Date acquireTime;
 }
