@@ -1,19 +1,16 @@
 package com.whu.graduation.taskincentive.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
-import com.whu.graduation.taskincentive.dao.entity.Badge;
-import com.whu.graduation.taskincentive.dao.entity.UserBadge;
 import com.whu.graduation.taskincentive.dao.entity.UserRewardRecord;
-import com.whu.graduation.taskincentive.dao.mapper.BadgeMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserRewardRecordMapper;
 import com.whu.graduation.taskincentive.service.UserRewardRecordService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -70,5 +67,12 @@ public class UserRewardRecordServiceImpl extends ServiceImpl<UserRewardRecordMap
                 .eq(UserRewardRecord::getStatus, status)
                 .orderByAsc(UserRewardRecord::getCreateTime)
         );
+    }
+
+    @Override
+    public Page<UserRewardRecord> selectByUserIdPage(Page<UserRewardRecord> page, Long userId, Integer status) {
+        QueryWrapper<UserRewardRecord> wrapper = new QueryWrapper<UserRewardRecord>().eq("user_id", userId).orderByDesc("create_time");
+        if (status != null) wrapper.eq("status", status);
+        return this.baseMapper.selectPage(page, wrapper);
     }
 }

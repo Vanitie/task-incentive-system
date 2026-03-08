@@ -1,6 +1,6 @@
 package com.whu.graduation.taskincentive.service;
 
-import com.whu.graduation.taskincentive.dao.entity.Badge;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.UserRewardRecord;
 
 import java.util.List;
@@ -45,4 +45,9 @@ public interface UserRewardRecordService {
      * @return 奖励记录列表
      */
     List<UserRewardRecord> selectByStatus(Long userId, Integer status);
+
+    /**
+     * 分页查询某用户的奖励记录（支持按 status 过滤，如果 status 为 null 则不过滤）
+     */
+    Page<UserRewardRecord> selectByUserIdPage(Page<UserRewardRecord> page, Long userId, Integer status);
 }

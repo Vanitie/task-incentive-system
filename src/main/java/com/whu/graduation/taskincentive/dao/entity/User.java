@@ -31,13 +31,30 @@ public class User {
     private String username;
 
     /**
+     * 密码（BCrypt 加密后保存）
+     */
+    private String password;
+
+    /**
+     * 角色，多个角色以逗号分隔（例如：ROLE_USER,ROLE_ADMIN）
+     */
+    private String roles;
+
+    /**
      * 当前积分余额
      */
+    @TableField("point_balance")
     private Integer pointBalance;
 
     /**
      * 创建时间
      */
-    @TableField(fill = FieldFill.INSERT)
+    @TableField(value = "create_time", fill = FieldFill.INSERT)
     private Date createTime;
+
+    /**
+     * 更新时间
+     */
+    @TableField(value = "update_time", fill = FieldFill.INSERT_UPDATE)
+    private Date updateTime;
 }

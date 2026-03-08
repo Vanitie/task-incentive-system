@@ -1,6 +1,8 @@
 package com.whu.graduation.taskincentive.controller;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.UserBadge;
+import com.whu.graduation.taskincentive.dto.PageResult;
 import com.whu.graduation.taskincentive.service.UserBadgeService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -18,8 +20,10 @@ public class UserBadgeController {
     private UserBadgeService userBadgeService;
 
     @GetMapping("/list/{userId}")
-    public List<UserBadge> listByUser(@PathVariable Long userId){
-        return userBadgeService.listByUserId(userId);
+    public PageResult<UserBadge> listByUser(@PathVariable Long userId, @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size){
+        Page<UserBadge> p = new Page<>(page, size);
+        p = userBadgeService.selectByUserIdPage(p, userId);
+        return PageResult.<UserBadge>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
     }
 
     @PostMapping("/grant")

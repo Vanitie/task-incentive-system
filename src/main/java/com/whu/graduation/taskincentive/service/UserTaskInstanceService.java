@@ -1,5 +1,6 @@
 package com.whu.graduation.taskincentive.service;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
 
 import java.util.List;
@@ -21,6 +22,11 @@ public interface UserTaskInstanceService {
      * @return 用户任务进度列表
      */
     List<UserTaskInstance> selectByUserId(Long userId);
+
+    /**
+     * 根据用户ID和状态查询任务进度（支持筛选：进行中/已完成/待审核等）
+     */
+    List<UserTaskInstance> selectByUserIdAndStatus(Long userId, Integer status);
 
     /**
      * 获取或创建用户任务实例
@@ -55,4 +61,9 @@ public interface UserTaskInstanceService {
      * 用户接取任务（幂等）：如果用户未接取则创建状态为 ACCEPTED 的实例并写缓存
      */
     UserTaskInstance acceptTask(Long userId, Long taskId);
+
+    /**
+     * 分页查询用户的任务实例，可按 status 过滤
+     */
+    Page<UserTaskInstance> selectByUserIdPage(com.baomidou.mybatisplus.extension.plugins.pagination.Page<com.whu.graduation.taskincentive.dao.entity.UserTaskInstance> page, Long userId, Integer status);
 }

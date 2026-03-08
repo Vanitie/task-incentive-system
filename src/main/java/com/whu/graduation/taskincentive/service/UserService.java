@@ -1,5 +1,6 @@
 package com.whu.graduation.taskincentive.service;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.User;
 
 import java.util.List;
@@ -37,4 +38,17 @@ public interface UserService {
      * @return true表示更新成功
      */
     boolean updateUserPoints(Long userId, Integer points);
+
+    /**
+     * 注册用户（会对密码进行加密并存储角色）
+     */
+    boolean register(User user, String rawPassword, String roles);
+
+    /**
+     * 验证用户名密码并返回用户对象（不包含密码）
+     */
+    User authenticate(String username, String rawPassword);
+
+    /** 分页查询用户 */
+    Page<User> selectPage(Page<User> page);
 }

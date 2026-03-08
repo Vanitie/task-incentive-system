@@ -1,5 +1,6 @@
 package com.whu.graduation.taskincentive.service;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.Badge;
 import java.util.List;
 
@@ -17,4 +18,6 @@ public interface BadgeService {
     Badge getById(Long id);
 
     List<Badge> listAll();
+
+    Page<Badge> selectPage(Page<Badge> page);
 }

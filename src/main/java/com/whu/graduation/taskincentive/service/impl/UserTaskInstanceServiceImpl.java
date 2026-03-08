@@ -2,6 +2,8 @@ package com.whu.graduation.taskincentive.service.impl;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.whu.graduation.taskincentive.common.enums.UserTaskStatus;
@@ -121,6 +123,20 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
     @Override
     public List<UserTaskInstance> selectByUserId(Long userId) {
         return userTaskInstanceMapper.selectByUserId(userId);
+    }
+
+    @Override
+    public List<UserTaskInstance> selectByUserIdAndStatus(Long userId, Integer status) {
+        return userTaskInstanceMapper.selectByUserIdAndStatus(userId, status);
+    }
+
+    @Override
+    public Page<UserTaskInstance> selectByUserIdPage(com.baomidou.mybatisplus.extension.plugins.pagination.Page<UserTaskInstance> page, Long userId, Integer status) {
+        QueryWrapper<UserTaskInstance> wrapper = new QueryWrapper<>();
+        wrapper.eq("user_id", userId);
+        if (status != null) wrapper.eq("status", status);
+        wrapper.orderByDesc("update_time");
+        return this.baseMapper.selectPage(page, wrapper);
     }
 
     @Override

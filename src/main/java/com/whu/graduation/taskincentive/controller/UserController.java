@@ -1,6 +1,8 @@
 package com.whu.graduation.taskincentive.controller;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.User;
+import com.whu.graduation.taskincentive.dto.PageResult;
 import com.whu.graduation.taskincentive.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -23,8 +25,10 @@ public class UserController {
     }
 
     @GetMapping("/list")
-    public List<User> listAll(){
-        return userService.listAll();
+    public PageResult<User> listAll(@RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size){
+        Page<User> p = new Page<>(page, size);
+        p = userService.selectPage(p);
+        return PageResult.<User>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
     }
 
     @PostMapping("/create")

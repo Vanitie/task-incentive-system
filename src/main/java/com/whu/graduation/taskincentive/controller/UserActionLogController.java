@@ -1,6 +1,8 @@
 package com.whu.graduation.taskincentive.controller;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.UserActionLog;
+import com.whu.graduation.taskincentive.dto.PageResult;
 import com.whu.graduation.taskincentive.service.UserActionLogService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -23,13 +25,17 @@ public class UserActionLogController {
     }
 
     @GetMapping("/list/{userId}")
-    public List<UserActionLog> listByUser(@PathVariable Long userId){
-        return actionLogService.selectByUserId(userId);
+    public PageResult<UserActionLog> listByUser(@PathVariable Long userId, @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size){
+        Page<UserActionLog> p = new Page<>(page, size);
+        p = actionLogService.selectByUserIdPage(p, userId);
+        return PageResult.<UserActionLog>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
     }
 
     @GetMapping("/by-type")
-    public List<UserActionLog> byType(@RequestParam String actionType){
-        return actionLogService.selectByActionType(actionType);
+    public PageResult<UserActionLog> byType(@RequestParam String actionType, @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size){
+        Page<UserActionLog> p = new Page<>(page, size);
+        p = actionLogService.selectByActionTypePage(p, actionType);
+        return PageResult.<UserActionLog>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
     }
 
     @GetMapping("/count")

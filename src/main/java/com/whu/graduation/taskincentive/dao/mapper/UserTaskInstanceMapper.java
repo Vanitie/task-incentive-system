@@ -18,6 +18,12 @@ public interface UserTaskInstanceMapper extends BaseMapper<UserTaskInstance> {
     @Select("SELECT * FROM user_task_instance WHERE user_id = #{userId}")
     List<UserTaskInstance> selectByUserId(@Param("userId") Long userId);
 
+    /**
+     * 按用户ID和状态查询任务进度
+     */
+    @Select("SELECT * FROM user_task_instance WHERE user_id = #{userId} AND status = #{status}")
+    List<UserTaskInstance> selectByUserIdAndStatus(@Param("userId") Long userId, @Param("status") Integer status);
+
     @Update("""
     UPDATE user_task_instance
     SET progress = #{progress},

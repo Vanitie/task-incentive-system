@@ -1,6 +1,7 @@
 package com.whu.graduation.taskincentive.service;
 
 import com.whu.graduation.taskincentive.dao.entity.UserActionLog;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
 import java.util.List;
 
@@ -58,6 +59,16 @@ public interface UserActionLogService {
      * @return 用户行为日志列表
      */
     List<UserActionLog> selectByActionType(String actionType);
+
+    /**
+     * 按用户ID分页查询行为日志
+     */
+    Page<UserActionLog> selectByUserIdPage(com.baomidou.mybatisplus.extension.plugins.pagination.Page<UserActionLog> page, Long userId);
+
+    /**
+     * 按行为类型分页查询
+     */
+    Page<UserActionLog> selectByActionTypePage(com.baomidou.mybatisplus.extension.plugins.pagination.Page<UserActionLog> page, String actionType);
 
     /**
      * 统计某用户的行为总量

@@ -1,8 +1,11 @@
 package com.whu.graduation.taskincentive.controller;
 
+import com.whu.graduation.taskincentive.dao.entity.User;
 import com.whu.graduation.taskincentive.security.JwtUtil;
+import com.whu.graduation.taskincentive.service.UserService;
 import io.jsonwebtoken.Claims;
 import lombok.Data;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -12,9 +15,11 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
+@RequiredArgsConstructor
 public class AuthController {
 
     private final JwtUtil jwtUtil;
+    private final UserService userService;
 
     @Value("${app.security.admin.username}")
     private String adminUser;
@@ -22,19 +27,38 @@ public class AuthController {
     @Value("${app.security.admin.password}")
     private String adminPass;
 
-    public AuthController(JwtUtil jwtUtil) {
-        this.jwtUtil = jwtUtil;
-    }
-
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest req) {
         if (adminUser.equals(req.getUsername()) && adminPass.equals(req.getPassword())) {
             Map<String, Object> claims = new HashMap<>();
             claims.put("admin", true);
+            claims.put("roles", "ROLE_ADMIN");
             String token = jwtUtil.generateToken(req.getUsername(), claims);
             return ResponseEntity.ok(new LoginResponse(token));
         }
+
+        User u = userService.authenticate(req.getUsername(), req.getPassword());
+        if (u != null) {
+            Map<String, Object> claims = new HashMap<>();
+            claims.put("roles", u.getRoles());
+            String token = jwtUtil.generateToken(u.getUsername(), claims);
+            return ResponseEntity.ok(new LoginResponse(token));
+        }
         return ResponseEntity.status(401).body("invalid credentials");
+    }
+
+    @PostMapping("/register")
+    public ResponseEntity<?> register(@RequestBody RegisterRequest req) {
+        if (req.getUsername() == null || req.getPassword() == null) {
+            return ResponseEntity.badRequest().body("username and password required");
+        }
+        User user = new User();
+        user.setUsername(req.getUsername());
+        user.setPointBalance(0);
+        String roles = req.getRoles() == null ? "ROLE_USER" : req.getRoles();
+        boolean ok = userService.register(user, req.getPassword(), roles);
+        if (ok) return ResponseEntity.ok("registered");
+        return ResponseEntity.status(409).body("user exists");
     }
 
     @GetMapping("/me")
@@ -45,6 +69,7 @@ public class AuthController {
             Map<String, Object> map = new HashMap<>();
             map.put("sub", claims.getSubject());
             map.put("exp", claims.getExpiration());
+            map.put("roles", claims.get("roles"));
             return ResponseEntity.ok(map);
         }
         return ResponseEntity.status(401).body("no token");
@@ -59,5 +84,12 @@ public class AuthController {
     @Data
     public static class LoginResponse {
         private final String token;
+    }
+
+    @Data
+    public static class RegisterRequest {
+        private String username;
+        private String password;
+        private String roles;
     }
 }

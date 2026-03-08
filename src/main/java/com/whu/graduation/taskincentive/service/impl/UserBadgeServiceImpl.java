@@ -1,6 +1,8 @@
 package com.whu.graduation.taskincentive.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.whu.graduation.taskincentive.dao.entity.Badge;
 import com.whu.graduation.taskincentive.dao.entity.UserBadge;
@@ -59,6 +61,13 @@ public class UserBadgeServiceImpl extends ServiceImpl<UserBadgeMapper, UserBadge
         return super.list(
                 lambdaQuery().eq(UserBadge::getUserId, userId)
         );
+    }
+
+    @Override
+    public Page<UserBadge> selectByUserIdPage(Page<UserBadge> page, Long userId) {
+        QueryWrapper<UserBadge> wrapper = new QueryWrapper<>();
+        wrapper.eq("user_id", userId).orderByDesc("acquire_time");
+        return this.baseMapper.selectPage(page, wrapper);
     }
 
     @Override

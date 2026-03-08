@@ -1,6 +1,8 @@
 package com.whu.graduation.taskincentive.controller;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.UserRewardRecord;
+import com.whu.graduation.taskincentive.dto.PageResult;
 import com.whu.graduation.taskincentive.service.UserRewardRecordService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -18,8 +20,11 @@ public class UserRewardController {
     private UserRewardRecordService recordService;
 
     @GetMapping("/list/{userId}")
-    public List<UserRewardRecord> listByUser(@PathVariable Long userId){
-        return recordService.selectByUserId(userId);
+    public PageResult<UserRewardRecord> listByUser(@PathVariable Long userId, @RequestParam(required = false) Integer status,
+                                                   @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size){
+        Page<UserRewardRecord> p = new Page<>(page, size);
+        p = recordService.selectByUserIdPage(p, userId, status);
+        return PageResult.<UserRewardRecord>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
     }
 
     @GetMapping("/unclaimed/{userId}")

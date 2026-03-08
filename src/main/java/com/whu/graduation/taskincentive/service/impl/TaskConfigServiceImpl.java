@@ -196,6 +196,11 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
     }
 
     @Override
+    public Page<TaskConfig> selectPage(Page<TaskConfig> page) {
+        return this.baseMapper.selectPage(page, null);
+    }
+
+    @Override
     public TaskConfig getTaskConfig(Long taskId) {
         //1.本地缓存
         TaskConfig config = localTaskConfigCache.getIfPresent(taskId);

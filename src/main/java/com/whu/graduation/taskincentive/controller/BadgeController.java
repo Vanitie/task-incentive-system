@@ -1,6 +1,8 @@
 package com.whu.graduation.taskincentive.controller;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.Badge;
+import com.whu.graduation.taskincentive.dto.PageResult;
 import com.whu.graduation.taskincentive.service.BadgeService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -19,8 +21,10 @@ public class BadgeController {
     private BadgeService badgeService;
 
     @GetMapping("/list")
-    public List<Badge> listAll(){
-        return badgeService.listAll();
+    public PageResult<Badge> listAll(@RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size){
+        Page<Badge> p = new Page<>(page, size);
+        p = badgeService.selectPage(p);
+        return PageResult.<Badge>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
     }
 
     @GetMapping("/{id}")

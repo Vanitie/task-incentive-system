@@ -71,7 +71,10 @@ public interface TaskConfigService {
      */
     Page<TaskConfig> selectByStatusPage(Page<TaskConfig> page, Integer status);
 
-    // ---- new service-level methods ----
+    /**
+     * 分页查询任务配置
+     */
+    Page<TaskConfig> selectPage(Page<TaskConfig> page);
 
     /**
      * 多级缓存获取 TaskConfig（本地->Redis->DB）

@@ -1,6 +1,8 @@
 package com.whu.graduation.taskincentive.controller;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
+import com.whu.graduation.taskincentive.dto.PageResult;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -18,10 +20,20 @@ public class TaskConfigController {
     @Autowired
     private TaskConfigService taskConfigService;
 
-    /** 查询所有任务配置 */
+    /** 查询任务配置（分页） */
     @GetMapping("/list")
-    public List<TaskConfig> listAll(){
-        return taskConfigService.listAll();
+    public PageResult<TaskConfig> listAll(@RequestParam(defaultValue = "1") int page,
+                                          @RequestParam(defaultValue = "20") int size,
+                                          @RequestParam(required = false) Integer status){
+        if (status != null) {
+            Page<TaskConfig> p = new Page<>(page, size);
+            p = taskConfigService.selectByStatusPage(p, status);
+            return PageResult.<TaskConfig>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
+        }
+
+        Page<TaskConfig> p = new Page<>(page, size);
+        p = taskConfigService.selectPage(p);
+        return PageResult.<TaskConfig>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
     }
 
     /** 根据ID查询 */

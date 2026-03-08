@@ -1,6 +1,7 @@
 package com.whu.graduation.taskincentive.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.whu.graduation.taskincentive.dao.entity.Badge;
 import com.whu.graduation.taskincentive.dao.mapper.BadgeMapper;
@@ -43,5 +44,10 @@ public class BadgeServiceImpl extends ServiceImpl<BadgeMapper, Badge> implements
     @Override
     public List<Badge> listAll() {
         return super.list();
+    }
+
+    @Override
+    public Page<Badge> selectPage(Page<Badge> page) {
+        return this.baseMapper.selectPage(page, null);
     }
 }
