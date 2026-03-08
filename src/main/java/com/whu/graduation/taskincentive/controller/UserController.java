@@ -5,6 +5,7 @@ import com.whu.graduation.taskincentive.dao.entity.User;
 import com.whu.graduation.taskincentive.dto.PageResult;
 import com.whu.graduation.taskincentive.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,11 +21,13 @@ public class UserController {
     private UserService userService;
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
     public User getById(@PathVariable Long id){
         return userService.getById(id);
     }
 
     @GetMapping("/list")
+    @PreAuthorize("hasRole('ADMIN')")
     public PageResult<User> listAll(@RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size){
         Page<User> p = new Page<>(page, size);
         p = userService.selectPage(p);
@@ -37,16 +40,19 @@ public class UserController {
     }
 
     @PutMapping("/update")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
     public boolean update(@RequestBody User user){
         return userService.update(user);
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public boolean delete(@PathVariable Long id){
         return userService.deleteById(id);
     }
 
     @PostMapping("/points")
+    @PreAuthorize("hasRole('ADMIN')")
     public boolean updatePoints(@RequestParam Long userId, @RequestParam Integer points){
         return userService.updateUserPoints(userId, points);
     }

@@ -5,6 +5,7 @@ import com.whu.graduation.taskincentive.dao.entity.UserBadge;
 import com.whu.graduation.taskincentive.dto.PageResult;
 import com.whu.graduation.taskincentive.service.UserBadgeService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,6 +21,7 @@ public class UserBadgeController {
     private UserBadgeService userBadgeService;
 
     @GetMapping("/list/{userId}")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
     public PageResult<UserBadge> listByUser(@PathVariable Long userId, @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size){
         Page<UserBadge> p = new Page<>(page, size);
         p = userBadgeService.selectByUserIdPage(p, userId);
@@ -27,11 +29,13 @@ public class UserBadgeController {
     }
 
     @PostMapping("/grant")
+    @PreAuthorize("hasRole('ADMIN')")
     public boolean grant(@RequestParam Long userId, @RequestParam Integer badgeCode){
         return userBadgeService.grantBadge(userId, badgeCode);
     }
 
     @PostMapping("/create")
+    @PreAuthorize("hasRole('ADMIN')")
     public boolean create(@RequestBody UserBadge userBadge){
         return userBadgeService.save(userBadge);
     }

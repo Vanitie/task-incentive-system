@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -35,7 +36,6 @@ public class TaskEngineController {
     @Autowired
     private RedisTemplate<String, String> redisTemplate;
 
-    // reuse existing executor bean defined in ThreadPoolConfig
     @Autowired
     @Qualifier("dbWriteExecutor")
     private ExecutorService executorService;
@@ -52,6 +52,7 @@ public class TaskEngineController {
      * }
      */
     @PostMapping("/api/engine/process-event-async")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
     public ResponseEntity<?> processEvent(@Valid @RequestBody ProcessEventRequest req) {
         // 参数校验由 @Valid/@NotNull/@NotBlank 承担
 
@@ -107,6 +108,7 @@ public class TaskEngineController {
      * 同步处理
      */
     @PostMapping("/api/engine/process-event-sync")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
     public ResponseEntity<?> processEventSync(@Valid @RequestBody ProcessEventRequest req) {
         UserEvent event = new UserEvent();
         event.setUserId(req.getUserId());

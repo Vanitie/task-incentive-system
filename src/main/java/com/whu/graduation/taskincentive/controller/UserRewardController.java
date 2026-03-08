@@ -5,6 +5,7 @@ import com.whu.graduation.taskincentive.dao.entity.UserRewardRecord;
 import com.whu.graduation.taskincentive.dto.PageResult;
 import com.whu.graduation.taskincentive.service.UserRewardRecordService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,6 +21,7 @@ public class UserRewardController {
     private UserRewardRecordService recordService;
 
     @GetMapping("/list/{userId}")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
     public PageResult<UserRewardRecord> listByUser(@PathVariable Long userId, @RequestParam(required = false) Integer status,
                                                    @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size){
         Page<UserRewardRecord> p = new Page<>(page, size);
@@ -28,11 +30,13 @@ public class UserRewardController {
     }
 
     @GetMapping("/unclaimed/{userId}")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
     public List<UserRewardRecord> unclaimed(@PathVariable Long userId){
         return recordService.selectUnclaimedPhysicalReward(userId);
     }
 
     @PostMapping("/create")
+    @PreAuthorize("hasRole('ADMIN')")
     public boolean create(@RequestBody UserRewardRecord record){
         return recordService.save(record);
     }
