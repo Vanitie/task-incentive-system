@@ -11,12 +11,17 @@ import com.whu.graduation.taskincentive.service.RewardService;
 import com.whu.graduation.taskincentive.strategy.task.TaskStrategy;
 import com.whu.graduation.taskincentive.service.UserTaskInstanceService;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
+import com.whu.graduation.taskincentive.constant.CacheKeys;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 任务规则引擎
@@ -37,40 +42,121 @@ public class TaskEngine {
     @Autowired
     private RewardService rewardService;
 
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+
     /**
-     * 处理用户事件：TaskEngine 只负责编排，缓存/Redis/Kafka 交由相应 Service 处理
+     * 处理用户事件：TaskEngine 只负责编排，缓存/Redis/Kafka 交由相应的 Service 处理
      */
     public void processEvent(UserEvent event) {
-        // 1. 从事件->任务映射（由 TaskConfigService 或外部组件维护，这里通过 taskConfigService 查询任务ID集合的实现留在 service 层）
-        // 为最小改动，继续从 TaskConfigService 获取关联的 taskIds by event type
+        String eventKey = CacheKeys.EVENT_TASKS_PREFIX + event.getEventType();
+        String userKey = "user:accepted:" + event.getUserId();
+
+        Set<String> intersect;
+        try {
+            intersect = redisTemplate.opsForSet().intersect(eventKey, userKey);
+        } catch (Exception e) {
+            log.debug("redis SINTER failed for eventKey={}, userKey={}, err={}", eventKey, userKey, e.getMessage());
+            intersect = null;
+        }
+
+        Set<Long> eventTaskIds;
+
+        if (intersect != null && !intersect.isEmpty()) {
+            // 1. 将 Redis 交集结果解析为 Long 集合
+            eventTaskIds = intersect.stream().map(s -> {
+                try { return Long.valueOf(s); } catch (Exception ex) { return null; }
+            }).filter(Objects::nonNull).collect(Collectors.toSet());
+            if (eventTaskIds.isEmpty()) return;
+
+            // 2. 批量获取这些任务的配置（降低多次查库/缓存的开销）
+            Map<Long, TaskConfig> configs = taskConfigService.getTaskConfigsByIds(eventTaskIds);
+
+            // 3. 一次性获取该用户的实例列表并构建 taskId -> instance 的映射，便于 O(1) 查找
+            List<UserTaskInstance> userInstances = instanceService.selectByUserId(event.getUserId());
+            Map<Long, UserTaskInstance> instanceByTaskId = userInstances == null ? java.util.Collections.emptyMap()
+                    : userInstances.stream().filter(Objects::nonNull).filter(i -> i.getStatus() != null && i.getStatus() > 0 && i.getTaskId() != null)
+                    .collect(Collectors.toMap(UserTaskInstance::getTaskId, i -> i));
+
+            for (Long taskId : eventTaskIds) {
+                TaskConfig taskConfig = configs.get(taskId);
+                if (taskConfig == null) {
+                    log.warn("taskConfig not found, taskId={}", taskId);
+                    continue;
+                }
+                TaskStrategy strategy = strategies.get(taskConfig.getTaskType());
+                if (strategy == null) {
+                    log.warn("no strategy for taskType={}, taskId={}", taskConfig.getTaskType(), taskId);
+                    continue;
+                }
+                UserTaskInstance instance = instanceByTaskId.get(taskId);
+                if (instance == null) {
+                    log.debug("user {} accepted task {} but instance not found, skip", event.getUserId(), taskId);
+                    continue;
+                }
+                if (strategy.execute(event, taskConfig, instance)) {
+                    StockType stockType = (taskConfig.getTotalStock() != null && taskConfig.getTotalStock() > 0)
+                            ? StockType.LIMITED : StockType.UNLIMITED;
+                    Reward reward = Reward.builder()
+                            .rewardId(IdWorker.getId())
+                            .taskId(taskId)
+                            .rewardType(RewardType.valueOf(taskConfig.getRewardType().toUpperCase()))
+                            .amount(taskConfig.getRewardValue())
+                            .stockType(stockType)
+                            .build();
+                    rewardService.grantReward(event.getUserId(), reward);
+                }
+                instanceService.updateAndPublish(instance);
+            }
+
+            // 4. 已通过 Redis 交集处理完毕，直接返回
+            return;
+        }
+
+        // 1. 回退：若 Redis 交集不可用，则在应用端计算交集并处理（兼容性保障）
         Set<String> taskIdStrs = taskConfigService.getTaskIdsByEventType(event.getEventType());
         if (taskIdStrs == null || taskIdStrs.isEmpty()) return;
 
-        for (String idStr : taskIdStrs) {
-            Long taskId = Long.valueOf(idStr);
+        List<UserTaskInstance> userInstances = instanceService.selectByUserId(event.getUserId());
+        if (userInstances == null || userInstances.isEmpty()) return;
 
-            // 2. 从 service 获取 TaskConfig（service 内负责多级缓存）
-            TaskConfig taskConfig = taskConfigService.getTaskConfig(taskId);
+        // 2. 从用户实例构造已接取任务 ID 集合
+        Set<Long> acceptedTaskIds = userInstances.stream()
+                .filter(Objects::nonNull)
+                .filter(i -> i.getStatus() != null && i.getStatus() > 0)
+                .map(UserTaskInstance::getTaskId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (acceptedTaskIds.isEmpty()) return;
+
+        // 3. 将事件关联的 taskId 字符串解析为 Long 并与用户已接取任务取交集
+        Set<Long> parsedEventTaskIds = taskIdStrs.stream().map(s -> {
+            try { return Long.valueOf(s); } catch (Exception e) { return null; }
+        }).filter(Objects::nonNull).collect(Collectors.toSet());
+
+        parsedEventTaskIds.retainAll(acceptedTaskIds);
+        if (parsedEventTaskIds.isEmpty()) return;
+
+        Map<Long, TaskConfig> configs = taskConfigService.getTaskConfigsByIds(parsedEventTaskIds);
+        Map<Long, UserTaskInstance> instanceByTaskId = userInstances.stream().filter(Objects::nonNull).filter(i -> i.getStatus() != null && i.getStatus() > 0 && i.getTaskId() != null)
+                .collect(Collectors.toMap(UserTaskInstance::getTaskId, i -> i));
+
+        for (Long taskId : parsedEventTaskIds) {
+            TaskConfig taskConfig = configs.get(taskId);
             if (taskConfig == null) {
                 log.warn("taskConfig not found, taskId={}", taskId);
                 continue;
             }
-
-            // 3. 仅获取用户已接取的实例；不自动创建
-            UserTaskInstance instance = instanceService.getAcceptedInstance(event.getUserId(), taskId);
-            if (instance == null) {
-                // 用户未接取该任务，跳过
-                log.debug("user {} has not accepted task {}, skip", event.getUserId(), taskId);
-                continue;
-            }
-
-            // 4. 执行策略（策略负责修改 instance 的进度/状态）
             TaskStrategy strategy = strategies.get(taskConfig.getTaskType());
             if (strategy == null) {
                 log.warn("no strategy for taskType={}, taskId={}", taskConfig.getTaskType(), taskId);
                 continue;
             }
-
+            UserTaskInstance instance = instanceByTaskId.get(taskId);
+            if (instance == null) {
+                log.debug("user {} accepted task {} but instance not found in map, skip", event.getUserId(), taskId);
+                continue;
+            }
             if (strategy.execute(event, taskConfig, instance)) {
                 StockType stockType = (taskConfig.getTotalStock() != null && taskConfig.getTotalStock() > 0)
                         ? StockType.LIMITED : StockType.UNLIMITED;
@@ -86,7 +172,7 @@ public class TaskEngine {
                 rewardService.grantReward(event.getUserId(), reward);
             }
 
-            // 5. 更新并发布用户任务实例（由 service 负责缓存更新与 Kafka 发布）
+            // 4. 更新并发布用户任务实例（由 Service 负责缓存更新与 Kafka 发布）
             instanceService.updateAndPublish(instance);
         }
     }

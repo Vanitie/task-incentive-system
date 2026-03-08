@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -91,4 +92,9 @@ public interface TaskConfigService {
      * 主动从 Redis/DB 拉取最新并刷新本地缓存
      */
     void refreshTaskConfig(Long taskId);
+
+    /**
+     * 批量获取 taskConfig，返回 id->TaskConfig 映射（用于批量处理优化）
+     */
+    Map<Long, TaskConfig> getTaskConfigsByIds(Set<Long> ids);
 }

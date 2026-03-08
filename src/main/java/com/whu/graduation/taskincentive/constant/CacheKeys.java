@@ -19,6 +19,9 @@ public final class CacheKeys {
     // 事件 -> taskId 集合前缀
     public static final String EVENT_TASKS_PREFIX = "event:";
 
+    // 用户已接取任务集合前缀（只保存 taskId）
+    public static final String USER_ACCEPTED_PREFIX = "user:accepted:";
+
     // DLQ / Error topic（可在配置中覆盖）
     public static final String DEFAULT_DLQ_TOPIC = "dlq-topic";
 

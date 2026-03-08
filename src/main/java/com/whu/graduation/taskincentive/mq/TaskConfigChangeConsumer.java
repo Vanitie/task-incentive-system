@@ -53,7 +53,7 @@ public class TaskConfigChangeConsumer {
         container = factory.createContainer(topic);
         container.getContainerProperties().setGroupId(groupId);
 
-        // 使用 MANUAL_IMMEDIATE 确保我们可以在处理成功后立刻提交 offset
+        // 使用 MANUAL_IMMEDIATE 确保可以在处理成功后立刻提交 offset
         container.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
 
         // 注册消息监听器：支持手动 ack，并处理多行数据与不同字段名（taskId / task_id / id）
@@ -66,9 +66,23 @@ public class TaskConfigChangeConsumer {
                     log.debug("kafka record metadata: topic={}, partition={}, offset={}, key={}", record.topic(), record.partition(), record.offset(), record.key());
 
                     JSONObject json = JSON.parseObject(value);
+
+                    // 最早判断：只处理 task_config 表的变更，其他表直接丢弃并 ack，避免不必要的解析开销
+                    String table = json.getString("table");
+                    if (table == null || !"task_config".equalsIgnoreCase(table)) {
+                        log.debug("skip unrelated table change, table={}, topic={}, payload={}", table, topic, value);
+                        if (Objects.nonNull(acknowledgment)) {
+                            try {
+                                acknowledgment.acknowledge();
+                            } catch (Exception ackEx) {
+                                log.warn("error while acknowledging skipped message", ackEx);
+                            }
+                        }
+                        return;
+                    }
+
                     log.info("received task-config-change event, instanceGroup={}, topic={}, payload={}", groupId, topic, value);
 
-                    String table = json.getString("table");
                     String type = json.getString("type"); // INSERT/UPDATE/DELETE
 
                     // collect ids from data or old depending on type
@@ -93,19 +107,15 @@ public class TaskConfigChangeConsumer {
                     if (ids.isEmpty()) {
                         log.info("no taskId found in message, skipping specific refresh (table={})", table);
                     } else {
-                        // 仅处理 task_config 表
-                        if ("task_config".equalsIgnoreCase(table)) {
-                            for (Long taskId : ids) {
-                                try {
-                                    taskConfigService.invalidateTaskConfig(taskId);
-                                    taskConfigService.refreshTaskConfig(taskId);
-                                } catch (Exception e) {
-                                    // 单条失败不影响其它条目，记录并继续
-                                    log.error("failed to refresh task config for id={} ", taskId, e);
-                                }
+                        // 仅处理 task_config 表（已在上方预判过）
+                        for (Long taskId : ids) {
+                            try {
+                                taskConfigService.invalidateTaskConfig(taskId);
+                                taskConfigService.refreshTaskConfig(taskId);
+                            } catch (Exception e) {
+                                // 单条失败不影响其它条目，记录并继续
+                                log.error("failed to refresh task config for id={} ", taskId, e);
                             }
-                        } else {
-                            log.debug("received change for unrelated table {}", table);
                         }
                     }
 

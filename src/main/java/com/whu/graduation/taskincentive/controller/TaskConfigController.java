@@ -20,14 +20,12 @@ public class TaskConfigController {
 
     /** 查询所有任务配置 */
     @GetMapping("/list")
-    @PreAuthorize("hasRole('ADMIN')")
     public List<TaskConfig> listAll(){
         return taskConfigService.listAll();
     }
 
     /** 根据ID查询 */
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
     public TaskConfig getById(@PathVariable Long id){
         return taskConfigService.getById(id);
     }

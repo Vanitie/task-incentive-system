@@ -1,7 +1,6 @@
 package com.whu.graduation.taskincentive.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.whu.graduation.taskincentive.dao.entity.TaskStock;
 import com.whu.graduation.taskincentive.dao.mapper.TaskStockMapper;
 import com.whu.graduation.taskincentive.service.TaskStockService;
@@ -20,7 +19,6 @@ public class TaskStockServiceImpl extends ServiceImpl<TaskStockMapper, TaskStock
 
     @Override
     public boolean save(TaskStock taskStock) {
-        taskStock.setTaskId(IdWorker.getId());
         return super.save(taskStock);
     }
 

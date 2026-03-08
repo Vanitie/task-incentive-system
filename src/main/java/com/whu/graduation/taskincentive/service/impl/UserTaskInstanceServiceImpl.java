@@ -18,6 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.Date;
 import java.util.List;
@@ -45,6 +47,14 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
 
     private static final String TASK_TOPIC = "task-persist-topic";
 
+    private String buildUserTaskKey(Long userId, Long taskId) {
+        return "userTask:" + userId + ":" + taskId;
+    }
+
+    private String buildUserAcceptedSetKey(Long userId) {
+        return com.whu.graduation.taskincentive.constant.CacheKeys.USER_ACCEPTED_PREFIX + userId;
+    }
+
     @Override
     public boolean save(UserTaskInstance progress) {
         progress.setId(IdWorker.getId());
@@ -53,12 +63,49 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
 
     @Override
     public boolean update(UserTaskInstance progress) {
-        return super.updateById(progress);
+        boolean updated = super.updateById(progress);
+        // 如果状态变为已接取，尽可能保证将 taskId 写入用户已接取集合（best-effort）
+        if (updated && progress.getStatus() != null && progress.getStatus() > 0) {
+            // 在事务提交后再执行 SADD 与缓存写入，避免事务回滚导致缓存脏数据
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        try { redisTemplate.opsForSet().add(buildUserAcceptedSetKey(progress.getUserId()), String.valueOf(progress.getTaskId())); } catch (Exception e) { log.debug("sadd user accepted failed afterCommit, err={}", e.getMessage()); }
+                        try { redisTemplate.opsForValue().set(buildUserTaskKey(progress.getUserId(), progress.getTaskId()), JSON.toJSONString(progress)); } catch (Exception e) { log.debug("redis set userTask failed afterCommit, err={}", e.getMessage()); }
+                    }
+                });
+            } else {
+                try { redisTemplate.opsForSet().add(buildUserAcceptedSetKey(progress.getUserId()), String.valueOf(progress.getTaskId())); } catch (Exception ignore) {}
+                try { redisTemplate.opsForValue().set(buildUserTaskKey(progress.getUserId(), progress.getTaskId()), JSON.toJSONString(progress)); } catch (Exception ignore) {}
+            }
+        }
+        return updated;
     }
 
     @Override
     public boolean deleteById(Long id) {
-        return super.removeById(id);
+        // 先读取待删除实例以获知 userId/taskId
+        UserTaskInstance inst = super.getById(id);
+        boolean removed = super.removeById(id);
+        if (!removed) return false;
+
+        // 若该实例为已接取状态，事务提交后从用户集合移除并从缓存删除对应实例
+        if (inst != null && inst.getUserId() != null && inst.getTaskId() != null && inst.getStatus() != null && inst.getStatus() > 0) {
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        try { redisTemplate.opsForSet().remove(buildUserAcceptedSetKey(inst.getUserId()), String.valueOf(inst.getTaskId())); } catch (Exception e) { log.debug("srem user accepted failed afterCommit, err={}", e.getMessage()); }
+                        try { redisTemplate.delete(buildUserTaskKey(inst.getUserId(), inst.getTaskId())); } catch (Exception e) { log.debug("redis delete userTask failed afterCommit, err={}", e.getMessage()); }
+                    }
+                });
+            } else {
+                try { redisTemplate.opsForSet().remove(buildUserAcceptedSetKey(inst.getUserId()), String.valueOf(inst.getTaskId())); } catch (Exception ignore) {}
+                try { redisTemplate.delete(buildUserTaskKey(inst.getUserId(), inst.getTaskId())); } catch (Exception ignore) {}
+            }
+        }
+        return true;
     }
 
     @Override
@@ -102,17 +149,11 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
         try {
             baseMapper.insert(instance);
         } catch (Exception e) {
-            // 说明已被其他线程创建
+            // 并发创建时回退到查询以确保幂等
             instance = baseMapper.selectByUserAndTask(userId, taskId);
         }
 
         return instance;
-    }
-
-    // ---- new methods ----
-
-    private String buildUserTaskKey(Long userId, Long taskId) {
-        return "userTask:" + userId + ":" + taskId;
     }
 
     @Override
@@ -129,10 +170,17 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
 
         UserTaskInstance instance = this.getOrCreate(userId, taskId);
         if (instance != null) {
-            try {
-                redisTemplate.opsForValue().set(key, JSON.toJSONString(instance));
-            } catch (Exception e) {
-                log.debug("redis write failed for key={}, err={}", key, e.getMessage());
+            // 为避免事务回滚后缓存脏数据：在事务提交后再回写缓存；无事务则直接写
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                UserTaskInstance toCache = instance;
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        try { redisTemplate.opsForValue().set(key, JSON.toJSONString(toCache)); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", key, e.getMessage()); }
+                    }
+                });
+            } else {
+                try { redisTemplate.opsForValue().set(key, JSON.toJSONString(instance)); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", key, e.getMessage()); }
             }
         }
         return instance;
@@ -141,21 +189,47 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
     @Override
     public void updateAndPublish(UserTaskInstance instance) {
         String key = buildUserTaskKey(instance.getUserId(), instance.getTaskId());
+        // 准备要写入缓存和发送到 Kafka 的负载
+        String payload = null;
         try {
             instance.setUpdateTime(new Date());
-            redisTemplate.opsForValue().set(key, JSON.toJSONString(instance));
+            payload = JSON.toJSONString(instance);
         } catch (Exception e) {
-            log.debug("redis write failed for key={}, err={}", key, e.getMessage());
+            log.debug("serialize instance failed, err={}", e.getMessage());
         }
 
-        try {
-            // include messageId for dedup in consumer
-            JSONObject wrapper = new JSONObject();
-            wrapper.put("messageId", UUID.randomUUID().toString());
-            wrapper.put("instance", instance);
-            kafkaTemplate.send(TASK_TOPIC, instance.getUserId().toString(), wrapper.toJSONString());
-        } catch (Exception e) {
-            log.warn("kafka send failed for instance userId={}, taskId={}, err={}", instance.getUserId(), instance.getTaskId(), e.getMessage());
+        final String finalPayload = payload;
+        // 若当前在事务中，则把 Redis 写和 Kafka 发送安排到事务提交后执行，避免未提交的数据被广播
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    if (finalPayload != null) {
+                        try { redisTemplate.opsForValue().set(key, finalPayload); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", key, e.getMessage()); }
+                    }
+
+                    try {
+                        JSONObject wrapper = new JSONObject();
+                        wrapper.put("messageId", UUID.randomUUID().toString());
+                        wrapper.put("instance", instance);
+                        kafkaTemplate.send(TASK_TOPIC, instance.getUserId().toString(), wrapper.toJSONString());
+                    } catch (Exception e) {
+                        log.warn("kafka send failed for instance userId={}, taskId={}, err={}", instance.getUserId(), instance.getTaskId(), e.getMessage());
+                    }
+                }
+            });
+        } else {
+            if (finalPayload != null) {
+                try { redisTemplate.opsForValue().set(key, finalPayload); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", key, e.getMessage()); }
+            }
+            try {
+                JSONObject wrapper = new JSONObject();
+                wrapper.put("messageId", UUID.randomUUID().toString());
+                wrapper.put("instance", instance);
+                kafkaTemplate.send(TASK_TOPIC, instance.getUserId().toString(), wrapper.toJSONString());
+            } catch (Exception e) {
+                log.warn("kafka send failed for instance userId={}, taskId={}, err={}", instance.getUserId(), instance.getTaskId(), e.getMessage());
+            }
         }
     }
 
@@ -169,14 +243,14 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
                 if (cached != null && cached.getStatus() != null && cached.getStatus() > 0) {
                     return cached;
                 }
-                // cached exists but not accepted -> treat as not accepted
+                // 缓存存在但不是已接取状态，视为未接取
                 return null;
             }
         } catch (Exception e) {
             log.debug("redis read failed for key={}, err={}", key, e.getMessage());
         }
 
-        // do not create; only read DB
+        // 不创建新实例，仅从 DB 读取
         UserTaskInstance instance = baseMapper.selectByUserAndTask(userId, taskId);
         if (instance == null) return null;
         if (instance.getStatus() == null) return null;
@@ -186,7 +260,7 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
 
     @Override
     public UserTaskInstance acceptTask(Long userId, Long taskId) {
-        // validate task exists and is enabled
+        // 校验任务存在且已启用/在时间窗口内
         TaskConfig config = taskConfigService.getTaskConfig(taskId);
         if (config == null) {
             log.warn("taskConfig not found for taskId={}", taskId);
@@ -206,24 +280,36 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
             throw new BusinessException(ErrorCode.TASK_ALREADY_ENDED);
         }
 
-        // try fetch from DB
+        // 尝试从 DB 获取现有实例
         UserTaskInstance instance = baseMapper.selectByUserAndTask(userId, taskId);
         if (instance != null) {
-            // already exists
+            // 已存在实例
             if (instance.getStatus() != null && instance.getStatus() > 0) {
-                // 已接取或更后状态，幂等返回
+                // 已接取或更高状态，幂等返回
                 return instance; // already accepted or beyond
             }
-            // else update status to ACCEPTED
+            // 否则把状态更新为已接取并写缓存（在事务提交后执行）
             instance.setStatus(UserTaskStatus.ACCEPTED.getCode());
             instance.setUpdateTime(new Date());
             baseMapper.updateById(instance);
-            // refresh cache
-            try { redisTemplate.opsForValue().set(buildUserTaskKey(userId, taskId), JSON.toJSONString(instance)); } catch (Exception ignore){}
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                UserTaskInstance toCache = instance;
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        try { redisTemplate.opsForValue().set(buildUserTaskKey(userId, taskId), JSON.toJSONString(toCache)); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", buildUserTaskKey(userId, taskId), e.getMessage()); }
+                        try { redisTemplate.opsForSet().add(buildUserAcceptedSetKey(userId), String.valueOf(taskId)); } catch (Exception e) { log.debug("sadd user accepted failed afterCommit, err={}", e.getMessage()); }
+                    }
+                });
+            } else {
+                try { redisTemplate.opsForValue().set(buildUserTaskKey(userId, taskId), JSON.toJSONString(instance)); } catch (Exception ignore){}
+                try { redisTemplate.opsForSet().add(buildUserAcceptedSetKey(userId), String.valueOf(taskId)); } catch (Exception ignore){}
+            }
+
             return instance;
         }
 
-        // create new accepted instance
+        // 创建新的已接取实例并写入 DB，随后在事务提交后写缓存与集合
         instance = new UserTaskInstance();
         instance.setId(IdWorker.getId());
         instance.setUserId(userId);
@@ -236,10 +322,23 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
 
         try {
             baseMapper.insert(instance);
-            // write cache
-            try { redisTemplate.opsForValue().set(buildUserTaskKey(userId, taskId), JSON.toJSONString(instance)); } catch (Exception ignore){}
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                UserTaskInstance toCache = instance;
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        try { redisTemplate.opsForValue().set(buildUserTaskKey(userId, taskId), JSON.toJSONString(toCache)); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", buildUserTaskKey(userId, taskId), e.getMessage()); }
+                        try { redisTemplate.opsForSet().add(buildUserAcceptedSetKey(userId), String.valueOf(taskId)); } catch (Exception e) { log.debug("sadd user accepted failed afterCommit, err={}", e.getMessage()); }
+                    }
+                });
+            } else {
+                try { redisTemplate.opsForValue().set(buildUserTaskKey(userId, taskId), JSON.toJSONString(instance)); } catch (Exception ignore){}
+                try { redisTemplate.opsForSet().add(buildUserAcceptedSetKey(userId), String.valueOf(taskId)); } catch (Exception ignore){}
+            }
+
             return instance;
         } catch (Exception e) {
+            // 并发创建回退逻辑
             log.warn("concurrent create detected, fallback to select: {}", e.getMessage());
             instance = baseMapper.selectByUserAndTask(userId, taskId);
             if (instance != null && instance.getStatus() != null && instance.getStatus() > 0) {
