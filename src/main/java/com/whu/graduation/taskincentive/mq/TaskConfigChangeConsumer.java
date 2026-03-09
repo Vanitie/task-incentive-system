@@ -61,78 +61,8 @@ public class TaskConfigChangeConsumer {
             @Override
             public void onMessage(ConsumerRecord<String, String> record, Acknowledgment acknowledgment) {
                 String value = record.value();
-                try {
-                    // log record metadata to help debugging/traceability
-                    log.debug("kafka record metadata: topic={}, partition={}, offset={}, key={}", record.topic(), record.partition(), record.offset(), record.key());
-
-                    JSONObject json = JSON.parseObject(value);
-
-                    // 最早判断：只处理 task_config 表的变更，其他表直接丢弃并 ack，避免不必要的解析开销
-                    String table = json.getString("table");
-                    if (table == null || !"task_config".equalsIgnoreCase(table)) {
-                        log.debug("skip unrelated table change, table={}, topic={}, payload={}", table, topic, value);
-                        if (Objects.nonNull(acknowledgment)) {
-                            try {
-                                acknowledgment.acknowledge();
-                            } catch (Exception ackEx) {
-                                log.warn("error while acknowledging skipped message", ackEx);
-                            }
-                        }
-                        return;
-                    }
-
-                    log.info("received task-config-change event, instanceGroup={}, topic={}, payload={}", groupId, topic, value);
-
-                    String type = json.getString("type"); // INSERT/UPDATE/DELETE
-
-                    // collect ids from data or old depending on type
-                    List<Long> ids = new ArrayList<>();
-                    JSONArray dataArr = json.getJSONArray("data");
-                    JSONArray oldArr = json.getJSONArray("old");
-
-                    if ("DELETE".equalsIgnoreCase(type) && oldArr != null && !oldArr.isEmpty()) {
-                        for (int i = 0; i < oldArr.size(); i++) {
-                            JSONObject row = oldArr.getJSONObject(i);
-                            Long id = extractTaskId(row);
-                            if (id != null) ids.add(id);
-                        }
-                    } else if (dataArr != null && !dataArr.isEmpty()) {
-                        for (int i = 0; i < dataArr.size(); i++) {
-                            JSONObject row = dataArr.getJSONObject(i);
-                            Long id = extractTaskId(row);
-                            if (id != null) ids.add(id);
-                        }
-                    }
-
-                    if (ids.isEmpty()) {
-                        log.info("no taskId found in message, skipping specific refresh (table={})", table);
-                    } else {
-                        // 仅处理 task_config 表（已在上方预判过）
-                        for (Long taskId : ids) {
-                            try {
-                                taskConfigService.invalidateTaskConfig(taskId);
-                                taskConfigService.refreshTaskConfig(taskId);
-                            } catch (Exception e) {
-                                // 单条失败不影响其它条目，记录并继续
-                                log.error("failed to refresh task config for id={} ", taskId, e);
-                            }
-                        }
-                    }
-
-                    // 处理成功后手动提交 offset
-                    acknowledgment.acknowledge();
-                } catch (Exception e) {
-                    // 解析/处理失败：记录完整信息并提交 offset，避免单条消息阻塞整个分区。
-                    // 如果你需要重试或 DLQ，可在这里实现重试策略或将消息发往错误 topic
-                    log.error("failed to handle task-config-change message, will ack and skip to avoid blocking. payload={}", value, e);
-                    try {
-                        if (Objects.nonNull(acknowledgment)) {
-                            acknowledgment.acknowledge();
-                        }
-                    } catch (Exception ackEx) {
-                        log.error("error while acknowledging failed message", ackEx);
-                    }
-                }
+                // 将复杂逻辑提取到独立方法，便于单元测试
+                handleMessage(value, acknowledgment);
             }
         });
 
@@ -141,6 +71,85 @@ public class TaskConfigChangeConsumer {
         container.start();
 
         log.info("TaskConfigChangeConsumer started with groupId={} topic={}", groupId, topic);
+    }
+
+    // 提取处理方法，包内可见，便于不启动 Spring 的单元测试直接调用
+    void handleMessage(String value, Acknowledgment acknowledgment) {
+        String groupId = "task-config-change-group-" + (instanceInfo == null ? "-unknown" : instanceInfo.getInstanceId());
+        try {
+            // log record metadata to help debugging/traceability
+            // 这里不再有 ConsumerRecord 的元数据，只有 value
+
+            JSONObject json = JSON.parseObject(value);
+
+            // 最早判断：只处理 task_config 表的变更，其他表直接丢弃并 ack，避免不必要的解析开销
+            String table = json.getString("table");
+            if (table == null || !"task_config".equalsIgnoreCase(table)) {
+                log.debug("skip unrelated table change, table={}, topic={}, payload={}", table, topic, value);
+                if (Objects.nonNull(acknowledgment)) {
+                    try {
+                        acknowledgment.acknowledge();
+                    } catch (Exception ackEx) {
+                        log.warn("error while acknowledging skipped message", ackEx);
+                    }
+                }
+                return;
+            }
+
+            log.info("received task-config-change event, instanceGroup={}, topic={}, payload={}", groupId, topic, value);
+
+            String type = json.getString("type"); // INSERT/UPDATE/DELETE
+
+            // collect ids from data or old depending on type
+            List<Long> ids = new ArrayList<>();
+            JSONArray dataArr = json.getJSONArray("data");
+            JSONArray oldArr = json.getJSONArray("old");
+
+            if ("DELETE".equalsIgnoreCase(type) && oldArr != null && !oldArr.isEmpty()) {
+                for (int i = 0; i < oldArr.size(); i++) {
+                    JSONObject row = oldArr.getJSONObject(i);
+                    Long id = extractTaskId(row);
+                    if (id != null) ids.add(id);
+                }
+            } else if (dataArr != null && !dataArr.isEmpty()) {
+                for (int i = 0; i < dataArr.size(); i++) {
+                    JSONObject row = dataArr.getJSONObject(i);
+                    Long id = extractTaskId(row);
+                    if (id != null) ids.add(id);
+                }
+            }
+
+            if (ids.isEmpty()) {
+                log.info("no taskId found in message, skipping specific refresh (table={})", table);
+            } else {
+                // 仅处理 task_config 表（已在上方预判过）
+                for (Long taskId : ids) {
+                    try {
+                        taskConfigService.invalidateTaskConfig(taskId);
+                        taskConfigService.refreshTaskConfig(taskId);
+                    } catch (Exception e) {
+                        // 单条失败不影响其它条目，记录并继续
+                        log.error("failed to refresh task config for id={} ", taskId, e);
+                    }
+                }
+            }
+
+            // 处理成功后手动提交 offset
+            if (Objects.nonNull(acknowledgment)) {
+                acknowledgment.acknowledge();
+            }
+        } catch (Exception e) {
+            // 解析/处理失败：记录完整信息并提交 offset，避免单条消息阻塞整个分区。
+            // 如果你需要重试或 DLQ，可在这里实现重试策略或将消息发往错误 topic
+            log.error("failed to handle task-config-change message, will ack and skip to avoid blocking. payload={}", value, e);
+            try {
+                if (Objects.nonNull(acknowledgment)) {
+                    acknowledgment.acknowledge();
+                }
+            } catch (Exception ackEx) {
+                log.error("error while acknowledging failed message", ackEx);
+            }
+        }
     }
 
     @PreDestroy
