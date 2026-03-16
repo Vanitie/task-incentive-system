@@ -2,6 +2,7 @@ package com.whu.graduation.taskincentive.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.UserRewardRecord;
+import com.whu.graduation.taskincentive.dto.ApiResponse;
 import com.whu.graduation.taskincentive.dto.ChartData;
 import com.whu.graduation.taskincentive.dto.PageResult;
 import com.whu.graduation.taskincentive.service.UserRewardRecordService;
@@ -23,23 +24,24 @@ public class UserRewardController {
 
     @GetMapping("/list/{userId}")
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
-    public PageResult<UserRewardRecord> listByUser(@PathVariable Long userId, @RequestParam(required = false) Integer status,
+    public ApiResponse<PageResult<UserRewardRecord>> listByUser(@PathVariable Long userId, @RequestParam(required = false) Integer status,
                                                    @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size){
         Page<UserRewardRecord> p = new Page<>(page, size);
         p = recordService.selectByUserIdPage(p, userId, status);
-        return PageResult.<UserRewardRecord>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
+        PageResult<UserRewardRecord> pr = PageResult.<UserRewardRecord>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
+        return ApiResponse.success(pr);
     }
 
     @GetMapping("/unclaimed/{userId}")
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
-    public List<UserRewardRecord> unclaimed(@PathVariable Long userId){
-        return recordService.selectUnclaimedPhysicalReward(userId);
+    public ApiResponse<List<UserRewardRecord>> unclaimed(@PathVariable Long userId){
+        return ApiResponse.success(recordService.selectUnclaimedPhysicalReward(userId));
     }
 
     @PostMapping("/create")
     @PreAuthorize("hasRole('ADMIN')")
-    public boolean create(@RequestBody UserRewardRecord record){
-        return recordService.save(record);
+    public ApiResponse<Boolean> create(@RequestBody UserRewardRecord record){
+        return ApiResponse.success(recordService.save(record));
     }
 
     // helper
@@ -59,11 +61,11 @@ public class UserRewardController {
      */
     @GetMapping("/count/today-receivers")
     @PreAuthorize("hasAnyRole('ADMIN')")
-    public ChartData countTodayReceivers(){
+    public ApiResponse<ChartData> countTodayReceivers(){
         List<Long> data = recordService.getReceivedUsersLast7Days();
         long value = data.stream().mapToLong(Long::longValue).sum();
         String percent = computePercent(data);
-        return ChartData.builder()
+        ChartData chart = ChartData.builder()
                 .name("今日奖励领取用户数")
                 .value(value)
                 .data(data)
@@ -72,5 +74,6 @@ public class UserRewardController {
                 .color("#ffb300")
                 .duration(1800)
                 .build();
+        return ApiResponse.success(chart);
     }
 }

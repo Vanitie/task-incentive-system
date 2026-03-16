@@ -1,13 +1,13 @@
 package com.whu.graduation.taskincentive.controller;
 
 import com.whu.graduation.taskincentive.constant.CacheKeys;
+import com.whu.graduation.taskincentive.dto.ApiResponse;
 import com.whu.graduation.taskincentive.engine.TaskEngine;
 import com.whu.graduation.taskincentive.event.UserEvent;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.validation.annotation.Validated;
@@ -53,7 +53,7 @@ public class TaskEngineController {
      */
     @PostMapping("/api/engine/process-event-async")
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
-    public ResponseEntity<?> processEvent(@Valid @RequestBody ProcessEventRequest req) {
+    public org.springframework.http.ResponseEntity<ApiResponse<?>> processEvent(@Valid @RequestBody ProcessEventRequest req) {
         // 参数校验由 @Valid/@NotNull/@NotBlank 承担
 
         String messageId = req.getMessageId();
@@ -64,7 +64,7 @@ public class TaskEngineController {
                 Boolean set = redisTemplate.opsForValue().setIfAbsent(dedupKey, "1", CacheKeys.DEFAULT_DEDUP_TTL_DAYS, TimeUnit.DAYS);
                 if (Boolean.FALSE.equals(set)) {
                     log.info("duplicate event ignored, messageId={}", messageId);
-                    return ResponseEntity.ok(Collections.singletonMap("status", "duplicate"));
+                    return org.springframework.http.ResponseEntity.ok(ApiResponse.success(Collections.singletonMap("status", "duplicate")));
                 }
             } catch (Exception e) {
                 // Redis 不可用时降级，不应阻塞入队；记录警告并继续
@@ -93,15 +93,14 @@ public class TaskEngineController {
                 });
             } catch (RejectedExecutionException rex) {
                 log.error("executor rejected taskEngine job", rex);
-                // 可选择把事件写入备用队列（Kafka）或返回 503
-                return ResponseEntity.status(503).body(Collections.singletonMap("error", "executor overloaded"));
+                return org.springframework.http.ResponseEntity.status(503).body(ApiResponse.error(503, "executor overloaded"));
             }
         } catch (Exception e) {
             log.error("failed to submit taskEngine job", e);
-            return ResponseEntity.status(500).body(Collections.singletonMap("error", "submit failed"));
+            return org.springframework.http.ResponseEntity.status(500).body(ApiResponse.error(500, "submit failed"));
         }
 
-        return ResponseEntity.accepted().build();
+        return org.springframework.http.ResponseEntity.accepted().body(ApiResponse.success());
     }
 
     /**
@@ -109,7 +108,7 @@ public class TaskEngineController {
      */
     @PostMapping("/api/engine/process-event-sync")
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
-    public ResponseEntity<?> processEventSync(@Valid @RequestBody ProcessEventRequest req) {
+    public ApiResponse<?> processEventSync(@Valid @RequestBody ProcessEventRequest req) {
         UserEvent event = new UserEvent();
         event.setUserId(req.getUserId());
         event.setEventType(req.getEventType());
@@ -118,10 +117,10 @@ public class TaskEngineController {
 
         try {
             taskEngine.processEvent(event);
-            return ResponseEntity.ok(Collections.singletonMap("status", "processed"));
+            return ApiResponse.success(Collections.singletonMap("status", "processed"));
         } catch (Exception e) {
             log.error("sync process failed", e);
-            return ResponseEntity.status(500).body(Collections.singletonMap("error", e.getMessage()));
+            return ApiResponse.error(500, e.getMessage());
         }
     }
 

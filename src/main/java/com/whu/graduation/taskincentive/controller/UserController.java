@@ -2,6 +2,7 @@ package com.whu.graduation.taskincentive.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.User;
+import com.whu.graduation.taskincentive.dto.ApiResponse;
 import com.whu.graduation.taskincentive.dto.ChartData;
 import com.whu.graduation.taskincentive.dto.PageResult;
 import com.whu.graduation.taskincentive.service.UserService;
@@ -26,39 +27,40 @@ public class UserController {
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
-    public User getById(@PathVariable Long id){
-        return userService.getById(id);
+    public ApiResponse<User> getById(@PathVariable Long id){
+        return ApiResponse.success(userService.getById(id));
     }
 
     @GetMapping("/list")
     @PreAuthorize("hasRole('ADMIN')")
-    public PageResult<User> listAll(@RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size){
+    public ApiResponse<PageResult<User>> listAll(@RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size){
         Page<User> p = new Page<>(page, size);
         p = userService.selectPage(p);
-        return PageResult.<User>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
+        PageResult<User> pr = PageResult.<User>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
+        return ApiResponse.success(pr);
     }
 
     @PostMapping("/create")
-    public boolean create(@RequestBody User user){
-        return userService.save(user);
+    public ApiResponse<Boolean> create(@RequestBody User user){
+        return ApiResponse.success(userService.save(user));
     }
 
     @PutMapping("/update")
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
-    public boolean update(@RequestBody User user){
-        return userService.update(user);
+    public ApiResponse<Boolean> update(@RequestBody User user){
+        return ApiResponse.success(userService.update(user));
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public boolean delete(@PathVariable Long id){
-        return userService.deleteById(id);
+    public ApiResponse<Boolean> delete(@PathVariable Long id){
+        return ApiResponse.success(userService.deleteById(id));
     }
 
     @PostMapping("/points")
     @PreAuthorize("hasRole('ADMIN')")
-    public boolean updatePoints(@RequestParam Long userId, @RequestParam Integer points){
-        return userService.updateUserPoints(userId, points);
+    public ApiResponse<Boolean> updatePoints(@RequestParam Long userId, @RequestParam Integer points){
+        return ApiResponse.success(userService.updateUserPoints(userId, points));
     }
 
     // helper to compute percent string
@@ -78,11 +80,11 @@ public class UserController {
      */
     @GetMapping("/count/total")
     @PreAuthorize("hasRole('ADMIN')")
-    public ChartData countTotalUsers(){
+    public ApiResponse<ChartData> countTotalUsers(){
         List<Long> data = userService.getUserCountLast7Days();
         long value = userService.countAllUsers();
         String percent = computePercent(data);
-        return ChartData.builder()
+        ChartData chart = ChartData.builder()
                 .name("用户总数")
                 .value(value)
                 .data(data)
@@ -91,6 +93,7 @@ public class UserController {
                 .color("#41b6ff")
                 .duration(2200)
                 .build();
+        return ApiResponse.success(chart);
     }
 
     /**
@@ -98,11 +101,11 @@ public class UserController {
      */
     @GetMapping("/count/active7days")
     @PreAuthorize("hasAnyRole('ADMIN')")
-    public ChartData countActive7Days(){
+    public ApiResponse<ChartData> countActive7Days(){
         List<Long> data = userService.getActiveUserCountLast7Days();
         long value = data.stream().mapToLong(Long::longValue).sum();
         String percent = computePercent(data);
-        return ChartData.builder()
+        ChartData chart = ChartData.builder()
                 .name("活跃用户数")
                 .value(value)
                 .data(data)
@@ -111,6 +114,7 @@ public class UserController {
                 .color("#e85f33")
                 .duration(1600)
                 .build();
+        return ApiResponse.success(chart);
     }
 
     /**
@@ -118,11 +122,11 @@ public class UserController {
      */
     @GetMapping("/count/today")
     @PreAuthorize("hasAnyRole('ADMIN')")
-    public ChartData countToday(){
+    public ApiResponse<ChartData> countToday(){
         List<Long> data = userService.getActiveUserCountLast7Days();
         long value = data.stream().mapToLong(Long::longValue).sum();
         String percent = computePercent(data);
-        return ChartData.builder()
+        ChartData chart = ChartData.builder()
                 .name("今日参与任务用户数")
                 .value(value)
                 .data(data)
@@ -131,5 +135,6 @@ public class UserController {
                 .color("#26ce83")
                 .duration(1500)
                 .build();
+        return ApiResponse.success(chart);
     }
 }

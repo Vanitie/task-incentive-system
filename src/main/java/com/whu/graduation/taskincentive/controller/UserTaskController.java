@@ -1,6 +1,7 @@
 package com.whu.graduation.taskincentive.controller;
 
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
+import com.whu.graduation.taskincentive.dto.ApiResponse;
 import com.whu.graduation.taskincentive.dto.PageResult;
 import com.whu.graduation.taskincentive.dto.TaskView;
 import com.whu.graduation.taskincentive.service.UserTaskInstanceService;
@@ -27,43 +28,47 @@ public class UserTaskController {
     /** 用户接取任务（幂等） */
     @PostMapping("/accept")
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
-    public UserTaskInstance acceptTask(@RequestParam Long userId, @RequestParam Long taskId){
-        return instanceService.acceptTask(userId, taskId);
+    public ApiResponse<UserTaskInstance> acceptTask(@RequestParam Long userId, @RequestParam Long taskId){
+        return ApiResponse.success(instanceService.acceptTask(userId, taskId));
     }
 
     /** 获取用户已接取任务的实例（可选按 status 筛选） */
     @GetMapping("/accepted/{userId}")
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
-    public PageResult<UserTaskInstance> getAccepted(@PathVariable Long userId, @RequestParam(required = false) Integer status,
+    public ApiResponse<PageResult<UserTaskInstance>> getAccepted(@PathVariable Long userId, @RequestParam(required = false) Integer status,
                                                     @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size){
         com.baomidou.mybatisplus.extension.plugins.pagination.Page<UserTaskInstance> p = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, size);
         p = instanceService.selectByUserIdPage(p, userId, status);
-        return PageResult.<UserTaskInstance>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
+        PageResult<UserTaskInstance> pr = PageResult.<UserTaskInstance>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
+        return ApiResponse.success(pr);
     }
 
     /** 获取用户任务列表 */
     @GetMapping("/list/{userId}")
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
-    public PageResult<UserTaskInstance> listByUser(@PathVariable Long userId, @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size){
+    public ApiResponse<PageResult<UserTaskInstance>> listByUser(@PathVariable Long userId, @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size){
         com.baomidou.mybatisplus.extension.plugins.pagination.Page<UserTaskInstance> p = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, size);
         p = instanceService.selectByUserIdPage(p, userId, null);
-        return PageResult.<UserTaskInstance>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
+        PageResult<UserTaskInstance> pr = PageResult.<UserTaskInstance>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
+        return ApiResponse.success(pr);
     }
 
     /** 获取用户可领取任务的聚合视图 */
     @GetMapping("/available/{userId}")
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
-    public PageResult<TaskView> listAvailableTasks(@PathVariable Long userId, @RequestParam(required = false) String state,
+    public ApiResponse<PageResult<TaskView>> listAvailableTasks(@PathVariable Long userId, @RequestParam(required = false) String state,
                                                    @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size) {
         com.baomidou.mybatisplus.extension.plugins.pagination.Page<TaskView> p = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, size);
         p = userViewService.listAvailableTasksPage(p, userId, state);
-        return PageResult.<TaskView>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
+        PageResult<TaskView> pr = PageResult.<TaskView>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
+        return ApiResponse.success(pr);
     }
 
     /** 手动触发同步到持久层（主要用于测试或补偿） */
     @PostMapping("/publish")
     @PreAuthorize("hasRole('ADMIN')")
-    public void publish(@RequestBody UserTaskInstance instance){
+    public ApiResponse<Void> publish(@RequestBody UserTaskInstance instance){
         instanceService.updateAndPublish(instance);
+        return ApiResponse.success();
     }
 }

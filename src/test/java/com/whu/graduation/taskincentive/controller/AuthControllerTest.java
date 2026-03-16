@@ -40,7 +40,7 @@ public class AuthControllerTest {
 
         mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").value("admintoken"));
+                .andExpect(jsonPath("$.data.token").value("admintoken"));
     }
 
     @Test
@@ -48,6 +48,7 @@ public class AuthControllerTest {
         when(userService.register(org.mockito.Mockito.any(User.class), anyString(), anyString())).thenReturn(true);
         String body = "{\"username\":\"u1\",\"password\":\"p\"}";
         mockMvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
     }
 }

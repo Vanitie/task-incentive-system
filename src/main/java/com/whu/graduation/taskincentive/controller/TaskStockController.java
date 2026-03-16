@@ -1,6 +1,7 @@
 package com.whu.graduation.taskincentive.controller;
 
 import com.whu.graduation.taskincentive.dao.entity.TaskStock;
+import com.whu.graduation.taskincentive.dto.ApiResponse;
 import com.whu.graduation.taskincentive.service.TaskStockService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -17,25 +18,25 @@ public class TaskStockController {
     private TaskStockService taskStockService;
 
     @GetMapping("/{taskId}")
-    public TaskStock get(@PathVariable Long taskId){
-        return taskStockService.getById(taskId);
+    public ApiResponse<TaskStock> get(@PathVariable Long taskId){
+        return ApiResponse.success(taskStockService.getById(taskId));
     }
 
     @PostMapping("/create")
     @PreAuthorize("hasRole('ADMIN')")
-    public boolean create(@RequestBody TaskStock stock){
-        return taskStockService.save(stock);
+    public ApiResponse<Boolean> create(@RequestBody TaskStock stock){
+        return ApiResponse.success(taskStockService.save(stock));
     }
 
     @PutMapping("/update")
     @PreAuthorize("hasRole('ADMIN')")
-    public boolean update(@RequestBody TaskStock stock){
-        return taskStockService.update(stock);
+    public ApiResponse<Boolean> update(@RequestBody TaskStock stock){
+        return ApiResponse.success(taskStockService.update(stock));
     }
 
     @DeleteMapping("/{taskId}")
     @PreAuthorize("hasRole('ADMIN')")
-    public boolean delete(@PathVariable Long taskId){
-        return taskStockService.deleteById(taskId);
+    public ApiResponse<Boolean> delete(@PathVariable Long taskId){
+        return ApiResponse.success(taskStockService.deleteById(taskId));
     }
 }

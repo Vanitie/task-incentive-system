@@ -1,6 +1,7 @@
 package com.whu.graduation.taskincentive.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.whu.graduation.taskincentive.dto.ApiResponse;
 import com.whu.graduation.taskincentive.dto.BarChartData;
 import com.whu.graduation.taskincentive.dto.DailyStatItem;
 import com.whu.graduation.taskincentive.dto.ProgressDataItem;
@@ -23,8 +24,8 @@ public class StatsController {
      */
     @GetMapping("/daily-task-bar")
     @PreAuthorize("hasAnyRole('ADMIN','USER')")
-    public List<BarChartData> getTwoWeeksTaskReceiveAndComplete(){
-        return statsService.getTwoWeeksTaskReceiveAndComplete();
+    public ApiResponse<List<BarChartData>> getTwoWeeksTaskReceiveAndComplete(){
+        return ApiResponse.success(statsService.getTwoWeeksTaskReceiveAndComplete());
     }
 
     /**
@@ -32,8 +33,8 @@ public class StatsController {
      */
     @GetMapping("/weekly-completion")
     @PreAuthorize("hasAnyRole('ADMIN','USER')")
-    public List<ProgressDataItem> getThisWeekCompletionPercent(){
-        return statsService.getThisWeekCompletionPercent();
+    public ApiResponse<List<ProgressDataItem>> getThisWeekCompletionPercent(){
+        return ApiResponse.success(statsService.getThisWeekCompletionPercent());
     }
 
     /**
@@ -41,8 +42,8 @@ public class StatsController {
      */
     @GetMapping("/daily-stats")
     @PreAuthorize("hasAnyRole('ADMIN','USER')")
-    public Page<DailyStatItem> pagedDailyStats(@RequestParam(defaultValue = "1") int page,
+    public ApiResponse<Page<DailyStatItem>> pagedDailyStats(@RequestParam(defaultValue = "1") int page,
                                                @RequestParam(defaultValue = "10") int size){
-        return statsService.pagedDailyStats(page, size);
+        return ApiResponse.success(statsService.pagedDailyStats(page, size));
     }
 }
