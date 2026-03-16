@@ -75,5 +75,28 @@ public interface UserTaskInstanceMapper extends BaseMapper<UserTaskInstance> {
      */
     @Select("SELECT DATE(create_time) as the_date, COUNT(DISTINCT user_id) as cnt FROM user_task_instance WHERE create_time >= #{start} AND create_time < #{end} GROUP BY DATE(create_time) ORDER BY DATE(create_time) ASC")
     List<Map<String, Object>> countActiveUsersGroupByDate(@Param("start") Date start, @Param("end") Date end);
-}
 
+    /**
+     * 统计在[start,end)期间每天接取任务的总数（按日期分组）
+     */
+    @Select("SELECT DATE(create_time) as the_date, COUNT(1) as cnt FROM user_task_instance WHERE create_time >= #{start} AND create_time < #{end} GROUP BY DATE(create_time) ORDER BY DATE(create_time) ASC")
+    List<Map<String, Object>> countTasksGroupByDate(@Param("start") Date start, @Param("end") Date end);
+
+    /**
+     * 统计在[start,end)期间每天接取任务中已完成的总数（按 create_date 分组，只统计当日接取且 status = #{status}）
+     */
+    @Select("SELECT DATE(create_time) as the_date, COUNT(1) as cnt FROM user_task_instance WHERE create_time >= #{start} AND create_time < #{end} AND status = #{status} GROUP BY DATE(create_time) ORDER BY DATE(create_time) ASC")
+    List<Map<String, Object>> countTasksByStatusGroupByDate(@Param("start") Date start, @Param("end") Date end, @Param("status") Integer status);
+
+    /**
+     * 统计在指定单日范围内的任务总数
+     */
+    @Select("SELECT COUNT(1) FROM user_task_instance WHERE create_time >= #{start} AND create_time < #{end}")
+    long countTasksBetween(@Param("start") Date start, @Param("end") Date end);
+
+    /**
+     * 统计在指定单日范围内的已完成任务数（status）
+     */
+    @Select("SELECT COUNT(1) FROM user_task_instance WHERE create_time >= #{start} AND create_time < #{end} AND status = #{status}")
+    long countTasksCompletedBetween(@Param("start") Date start, @Param("end") Date end, @Param("status") Integer status);
+}
