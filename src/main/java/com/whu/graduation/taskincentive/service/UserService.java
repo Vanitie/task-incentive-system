@@ -3,6 +3,7 @@ package com.whu.graduation.taskincentive.service;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.User;
 
+import java.util.Date;
 import java.util.List;
 
 /**
@@ -51,4 +52,30 @@ public interface UserService {
 
     /** 分页查询用户 */
     Page<User> selectPage(Page<User> page);
+
+    // ---------- 统计相关接口 ----------
+    /**
+     * 查询用户表总数
+     */
+    long countAllUsers();
+
+    /**
+     * 统计从指定时间点以来，接取过任务的不重复用户数
+     */
+    long countActiveUsersSince(Date since);
+
+    /**
+     * 统计今日接取过任务的不重复用户数
+     */
+    long countUsersToday();
+
+    /**
+     * 获取过去 7 天内每天的用户总数（按创建日期统计），顺序从 6 天前到今天
+     */
+    List<Long> getUserCountLast7Days();
+
+    /**
+     * 获取过去 7 天内每天的活跃用户数（接取任务的去重 user_id），顺序从 6 天前到今天
+     */
+    List<Long> getActiveUserCountLast7Days();
 }

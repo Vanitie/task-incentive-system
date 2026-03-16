@@ -50,4 +50,14 @@ public interface UserRewardRecordService {
      * 分页查询某用户的奖励记录（支持按 status 过滤，如果 status 为 null 则不过滤）
      */
     Page<UserRewardRecord> selectByUserIdPage(Page<UserRewardRecord> page, Long userId, Integer status);
+
+    /**
+     * 统计今日领取过奖励的不重复用户数
+     */
+    long countUsersReceivedToday();
+
+    /**
+     * 获取过去 7 天每天的领取奖励去重用户数，顺序从 6 天前到今天
+     */
+    List<Long> getReceivedUsersLast7Days();
 }
