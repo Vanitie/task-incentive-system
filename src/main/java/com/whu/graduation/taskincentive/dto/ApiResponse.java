@@ -1,5 +1,6 @@
 package com.whu.graduation.taskincentive.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -10,14 +11,18 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@Schema(description = "通用 API 响应体，包含 code/msg/data")
 public class ApiResponse<T> {
     /** 状态码，0 表示成功，非 0 表示错误 */
+    @Schema(description = "状态码，0 表示成功，非 0 表示错误", example = "0")
     private int code;
 
     /** 返回信息 */
+    @Schema(description = "返回信息", example = "ok")
     private String msg;
 
     /** 返回数据 */
+    @Schema(description = "返回数据，泛型类型")
     private T data;
 
     public static <T> ApiResponse<T> success(T data) {

@@ -4,6 +4,7 @@ import com.whu.graduation.taskincentive.constant.CacheKeys;
 import com.whu.graduation.taskincentive.dto.ApiResponse;
 import com.whu.graduation.taskincentive.engine.TaskEngine;
 import com.whu.graduation.taskincentive.event.UserEvent;
+import io.swagger.v3.oas.annotations.Operation;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,6 +52,7 @@ public class TaskEngineController {
      *   "time": "2026-03-08T12:00:00"
      * }
      */
+    @Operation(summary = "异步处理用户事件（非阻塞）")
     @PostMapping("/api/engine/process-event-async")
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
     public org.springframework.http.ResponseEntity<ApiResponse<?>> processEvent(@Valid @RequestBody ProcessEventRequest req) {
@@ -106,6 +108,7 @@ public class TaskEngineController {
     /**
      * 同步处理
      */
+    @Operation(summary = "同步处理用户事件（阻塞，立即返回处理结果）")
     @PostMapping("/api/engine/process-event-sync")
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
     public ApiResponse<?> processEventSync(@Valid @RequestBody ProcessEventRequest req) {

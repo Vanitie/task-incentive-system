@@ -1,5 +1,6 @@
 package com.whu.graduation.taskincentive.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,16 +15,17 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@Schema(description = "简单分页结果封装")
 public class PageResult<T> {
-    /** 总记录数 */
+    @Schema(description = "总记录数")
     private long total;
 
-    /** 当前页码 */
+    @Schema(description = "当前页码")
     private int page;
 
-    /** 每页大小 */
+    @Schema(description = "每页大小")
     private int size;
 
-    /** 当前页数据列表 */
+    @Schema(description = "当前页数据列表")
     private List<T> items;
 }

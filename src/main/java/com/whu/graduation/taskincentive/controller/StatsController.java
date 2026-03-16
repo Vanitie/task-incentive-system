@@ -6,6 +6,7 @@ import com.whu.graduation.taskincentive.dto.BarChartData;
 import com.whu.graduation.taskincentive.dto.DailyStatItem;
 import com.whu.graduation.taskincentive.dto.ProgressDataItem;
 import com.whu.graduation.taskincentive.service.StatsService;
+import io.swagger.v3.oas.annotations.Operation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -22,6 +23,7 @@ public class StatsController {
     /**
      * 两周任务接取数/完成数（本周、上周）
      */
+    @Operation(summary = "两周任务接取/完成数（本周、上周）")
     @GetMapping("/daily-task-bar")
     @PreAuthorize("hasAnyRole('ADMIN','USER')")
     public ApiResponse<List<BarChartData>> getTwoWeeksTaskReceiveAndComplete(){
@@ -31,6 +33,7 @@ public class StatsController {
     /**
      * 本周每日完成率（百分比及颜色）
      */
+    @Operation(summary = "本周每日任务完成率")
     @GetMapping("/weekly-completion")
     @PreAuthorize("hasAnyRole('ADMIN','USER')")
     public ApiResponse<List<ProgressDataItem>> getThisWeekCompletionPercent(){
@@ -40,6 +43,7 @@ public class StatsController {
     /**
      * 分页查询每日统计
      */
+    @Operation(summary = "分页查询每日统计（最近30天，分页）")
     @GetMapping("/daily-stats")
     @PreAuthorize("hasAnyRole('ADMIN','USER')")
     public ApiResponse<Page<DailyStatItem>> pagedDailyStats(@RequestParam(defaultValue = "1") int page,

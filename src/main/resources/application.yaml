@@ -35,3 +35,4 @@ app:
       password: admin123
   dlq:
     topic: dlq-topic
+    custom-js: /swagger-ui-request-interceptor.js

@@ -1,5 +1,6 @@
 package com.whu.graduation.taskincentive.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
@@ -8,11 +9,12 @@ import lombok.Data;
  */
 @Data
 @AllArgsConstructor
+@Schema(description = "奖励事件 DTO，表示用户获得某个奖励")
 public class RewardEvent {
 
-    /** 用户 ID */
+    @Schema(description = "用户 ID")
     private Long userId;
 
-    /** 奖励对象 */
+    @Schema(description = "奖励对象")
     private Reward reward;
 }

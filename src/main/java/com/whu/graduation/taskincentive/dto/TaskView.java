@@ -1,6 +1,7 @@
 package com.whu.graduation.taskincentive.dto;
 
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,19 +14,20 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@Schema(description = "用户任务视图 DTO，包含任务配置与运行时信息")
 public class TaskView {
-    /** 任务配置对象（原始 TaskConfig） */
+    @Schema(description = "任务配置对象（TaskConfig）")
     private TaskConfig taskConfig;
 
-    /** 剩余库存（仅限量任务返回具体数值，非限量返回 null） */
+    @Schema(description = "剩余库存，若非限量任务为 null")
     private Integer remainingStock;
 
-    /** 用户是否已接取该任务（针对当前用户） */
+    @Schema(description = "用户是否已接取该任务")
     private Boolean userAccepted;
 
-    /** 当前用户是否可接取该任务（权限/次数/时间等校验结果） */
+    @Schema(description = "当前用户是否可以接取该任务")
     private Boolean canAccept;
 
-    /** 如果不可接取，给出不可接取原因描述（如：已结束/未开始/售罄/已接取等） */
+    @Schema(description = "若不可接取，给出原因（如：已结束/未开始/售罄/已接取）")
     private String reason;
 }
