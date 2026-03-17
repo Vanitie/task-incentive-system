@@ -36,3 +36,18 @@ app:
   dlq:
     topic: dlq-topic
     custom-js: /swagger-ui-request-interceptor.js
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      percentiles:
+        http.server.requests: 0.9,0.95,0.99

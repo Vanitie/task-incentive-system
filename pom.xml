@@ -185,6 +185,16 @@
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>2.1.0</version>
         </dependency>
+
+        <!-- 监控指标：Actuator + Micrometer Prometheus -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
     </dependencies>
 
     <build>
@@ -217,19 +227,13 @@
             <plugin>
                 <groupId>org.springdoc</groupId>
                 <artifactId>springdoc-openapi-maven-plugin</artifactId>
-                <version>2.1.0</version>
+                <version>1.5</version>
                 <executions>
                     <execution>
-                        <id>generate-openapi</id>
-                        <phase>prepare-package</phase>
+                        <id>integration-test</id>
                         <goals>
                             <goal>generate</goal>
                         </goals>
-                        <configuration>
-                            <outputFileName>openapi.json</outputFileName>
-                            <outputDir>${project.build.directory}/openapi</outputDir>
-                            <apiDocsUrl>http://localhost:8080/v3/api-docs</apiDocsUrl>
-                        </configuration>
                     </execution>
                 </executions>
             </plugin>
