@@ -65,4 +65,44 @@ public class TaskConfigController {
     public ApiResponse<Boolean> delete(@PathVariable Long id){
         return ApiResponse.success(taskConfigService.deleteById(id));
     }
+
+    /**
+     * 多条件分页查询任务配置
+     * @param taskName 任务名称（可选）
+     * @param taskType 任务类型（可选）
+     * @param status 任务状态（可选）
+     * @param rewardType 奖励类型（可选）
+     * @param page 页码
+     * @param size 每页数量
+     * @param orderByEndTime 排序字段（endTime），可选
+     * @param asc 是否升序（true升序，false降序），可选
+     * @return 分页结果
+     */
+    @GetMapping("/search")
+    public ApiResponse<PageResult<TaskConfig>> search(
+            @RequestParam(required = false) String taskName,
+            @RequestParam(required = false) String taskType,
+            @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) String rewardType,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "endTime") String orderByEndTime,
+            @RequestParam(defaultValue = "false") boolean asc
+    ) {
+        Page<TaskConfig> p = new Page<>(page, size);
+        // 设置排序
+        if (asc) {
+            p.addOrder(com.baomidou.mybatisplus.core.metadata.OrderItem.asc(orderByEndTime));
+        } else {
+            p.addOrder(com.baomidou.mybatisplus.core.metadata.OrderItem.desc(orderByEndTime));
+        }
+        Page<TaskConfig> result = taskConfigService.searchByConditions(taskName, taskType, status, rewardType, p);
+        PageResult<TaskConfig> pr = PageResult.<TaskConfig>builder()
+                .total(result.getTotal())
+                .page((int)result.getCurrent())
+                .size((int)result.getSize())
+                .items(result.getRecords())
+                .build();
+        return ApiResponse.success(pr);
+    }
 }

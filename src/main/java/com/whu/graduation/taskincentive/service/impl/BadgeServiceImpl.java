@@ -46,8 +46,20 @@ public class BadgeServiceImpl extends ServiceImpl<BadgeMapper, Badge> implements
         return super.list();
     }
 
+    /**
+     * 分页查询所有徽章
+     */
     @Override
     public Page<Badge> selectPage(Page<Badge> page) {
-        return this.baseMapper.selectPage(page, null);
+        return super.page(page);
+    }
+
+    @Override
+    public Page<Badge> searchByName(String name, Page<Badge> page) {
+        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<Badge> wrapper = new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
+        if (name != null && !name.isEmpty()) {
+            wrapper.like("name", name);
+        }
+        return super.page(page, wrapper);
     }
 }

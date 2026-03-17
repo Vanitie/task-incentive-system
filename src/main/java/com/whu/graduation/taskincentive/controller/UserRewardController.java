@@ -63,9 +63,10 @@ public class UserRewardController {
     @PreAuthorize("hasAnyRole('ADMIN')")
     public ApiResponse<ChartData> countTodayReceivers(){
         List<Long> data = recordService.getReceivedUsersLast7Days();
-        long value = data.stream().mapToLong(Long::longValue).sum();
+        long value = data.get(data.size() - 1);
         String percent = computePercent(data);
         ChartData chart = ChartData.builder()
+                .icon("reward")
                 .name("今日奖励领取用户数")
                 .value(value)
                 .data(data)

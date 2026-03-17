@@ -102,6 +102,10 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
     @Transactional(rollbackFor = Exception.class)
     public boolean save(TaskConfig taskConfig) {
         taskConfig.setId(IdWorker.getId());
+        // 修正：ruleConfig 不能为空字符串，否则 MySQL JSON 字段会报错
+        if (taskConfig.getRuleConfig() == null || taskConfig.getRuleConfig().trim().isEmpty()) {
+            taskConfig.setRuleConfig("{}");
+        }
         boolean saved = super.save(taskConfig);
         if (!saved) return false;
 
@@ -137,6 +141,10 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean update(TaskConfig taskConfig) {
+        // 修正：ruleConfig 不能为空字符串，否则 MySQL JSON 字段会报错
+        if (taskConfig.getRuleConfig() == null || taskConfig.getRuleConfig().trim().isEmpty()) {
+            taskConfig.setRuleConfig("{}");
+        }
         boolean updated = super.updateById(taskConfig);
         if (!updated) return false;
 
@@ -356,5 +364,23 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
 
         // 仍然缺失的 id 可视为无效，记录日志后忽略
         return result;
+    }
+
+    @Override
+    public Page<TaskConfig> searchByConditions(String taskName, String taskType, Integer status, String rewardType, Page<TaskConfig> page) {
+        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<TaskConfig> wrapper = new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
+        if (taskName != null && !taskName.isEmpty()) {
+            wrapper.like("task_name", taskName);
+        }
+        if (taskType != null && !taskType.isEmpty()) {
+            wrapper.eq("task_type", taskType);
+        }
+        if (status != null) {
+            wrapper.eq("status", status);
+        }
+        if (rewardType != null && !rewardType.isEmpty()) {
+            wrapper.eq("reward_type", rewardType);
+        }
+        return super.page(page, wrapper);
     }
 }

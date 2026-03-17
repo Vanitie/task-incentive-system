@@ -51,4 +51,19 @@ public class BadgeController {
     public ApiResponse<Boolean> delete(@PathVariable Long id){
         return ApiResponse.success(badgeService.deleteById(id));
     }
+
+    /**
+     * 按名称模糊搜索徽章
+     * @param name 徽章名称
+     * @param page 页码
+     * @param size 每页数量
+     * @return 分页结果
+     */
+    @GetMapping("/search")
+    public ApiResponse<PageResult<Badge>> searchByName(@RequestParam String name, @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size) {
+        Page<Badge> p = new Page<>(page, size);
+        p = badgeService.searchByName(name, p);
+        PageResult<Badge> pr = PageResult.<Badge>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
+        return ApiResponse.success(pr);
+    }
 }

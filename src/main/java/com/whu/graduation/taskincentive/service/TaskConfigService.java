@@ -100,4 +100,9 @@ public interface TaskConfigService {
      * 批量获取 taskConfig，返回 id->TaskConfig 映射（用于批量处理优化）
      */
     Map<Long, TaskConfig> getTaskConfigsByIds(Set<Long> ids);
+
+    /**
+     * 多条件分页查询任务配置
+     */
+    Page<TaskConfig> searchByConditions(String taskName, String taskType, Integer status, String rewardType, Page<TaskConfig> page);
 }

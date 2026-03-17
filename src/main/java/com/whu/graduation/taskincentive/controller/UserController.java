@@ -85,6 +85,7 @@ public class UserController {
         long value = userService.countAllUsers();
         String percent = computePercent(data);
         ChartData chart = ChartData.builder()
+                .icon("user")
                 .name("用户总数")
                 .value(value)
                 .data(data)
@@ -103,9 +104,10 @@ public class UserController {
     @PreAuthorize("hasAnyRole('ADMIN')")
     public ApiResponse<ChartData> countActive7Days(){
         List<Long> data = userService.getActiveUserCountLast7Days();
-        long value = data.stream().mapToLong(Long::longValue).sum();
+        long value = data.get(data.size() - 1);
         String percent = computePercent(data);
         ChartData chart = ChartData.builder()
+                .icon("active")
                 .name("活跃用户数")
                 .value(value)
                 .data(data)
@@ -118,15 +120,16 @@ public class UserController {
     }
 
     /**
-     * 统计过去7天内每日接取任务的用户数（活跃用户数）
+     * 统计过去7天内每日接取任务的用户数
      */
     @GetMapping("/count/today")
     @PreAuthorize("hasAnyRole('ADMIN')")
     public ApiResponse<ChartData> countToday(){
         List<Long> data = userService.getActiveUserCountLast7Days();
-        long value = data.stream().mapToLong(Long::longValue).sum();
+        long value = data.get(data.size() - 1);
         String percent = computePercent(data);
         ChartData chart = ChartData.builder()
+                .icon("task")
                 .name("今日参与任务用户数")
                 .value(value)
                 .data(data)

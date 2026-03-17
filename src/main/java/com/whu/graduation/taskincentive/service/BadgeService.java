@@ -20,4 +20,9 @@ public interface BadgeService {
     List<Badge> listAll();
 
     Page<Badge> selectPage(Page<Badge> page);
+
+    /**
+     * 按名称模糊搜索徽章，分页
+     */
+    Page<Badge> searchByName(String name, Page<Badge> page);
 }

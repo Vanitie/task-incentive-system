@@ -196,14 +196,12 @@ public class StatsServiceImpl implements StatsService {
         for (Map<String, Object> r : recvRows) { Object d = r.get("the_date"); Object c = r.get("cnt"); if (d != null) { String key = d.toString(); long v=0; if (c instanceof Number) v=((Number)c).longValue(); else try{v=Long.parseLong(String.valueOf(c));}catch(Exception ignored){} recvMap.put(key,v);} }
         for (Map<String, Object> r : compRows) { Object d = r.get("the_date"); Object c = r.get("cnt"); if (d != null) { String key = d.toString(); long v=0; if (c instanceof Number) v=((Number)c).longValue(); else try{v=Long.parseLong(String.valueOf(c));}catch(Exception ignored){} compMap.put(key,v);} }
 
-        // 组装列表（从今天开始，往前 days 天），保持与之前相同的排序（today first）
+        // 组装列表（正序：earliest -> today），累计用户数只增不减
         List<DailyStatItem> all = new ArrayList<>();
         long running = base;
-        Calendar iter = (Calendar) cal.clone();
+        Calendar iter = (Calendar) earliest.clone(); // 从最早日期开始
         for (int i = 0; i < days; i++) {
             Date dayStart = iter.getTime();
-            Calendar next = (Calendar) iter.clone(); next.add(Calendar.DAY_OF_MONTH, 1);
-            Date dayEnd = next.getTime();
             String key = SDF.format(dayStart);
             long newUsers = dailyNewUsers.getOrDefault(key, 0L);
             running += newUsers; // cumulative
@@ -222,8 +220,10 @@ public class StatsServiceImpl implements StatsService {
                     .completionRate(completionRate)
                     .build();
             all.add(item);
-            iter.add(Calendar.DAY_OF_MONTH, -1); // move backward so list starts from today
+            iter.add(Calendar.DAY_OF_MONTH, 1); // 正序遍历
         }
+        // 如需 today first，反转 all
+        Collections.reverse(all);
 
         int from = (page - 1) * size;
         int to = Math.min(from + size, all.size());
