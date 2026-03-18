@@ -1,9 +1,11 @@
 package com.whu.graduation.taskincentive.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.whu.graduation.taskincentive.dao.entity.User;
+import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
 import com.whu.graduation.taskincentive.dao.mapper.UserMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserTaskInstanceMapper;
 import com.whu.graduation.taskincentive.service.UserService;
@@ -233,6 +235,47 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             iter.add(Calendar.DAY_OF_MONTH, 1);
         }
 
+        return result;
+    }
+
+    @Override
+    public List<Long> getTaskReceiveUserCountLast7Days() {
+        // 直接在数据库层面分组统计：按日期分组，组内对 user_id 去重计数
+        Calendar cal = Calendar.getInstance();
+        cal.set(Calendar.HOUR_OF_DAY, 0);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        Date todayStart = cal.getTime();
+        cal.add(Calendar.DAY_OF_MONTH, -6);
+        Date firstDay = cal.getTime();
+        Calendar endCal = Calendar.getInstance();
+        endCal.setTime(todayStart);
+        endCal.add(Calendar.DAY_OF_MONTH, 1);
+        Date end = endCal.getTime();
+        // 查询：SELECT DATE(create_time) as the_date, COUNT(DISTINCT user_id) as cnt FROM user_task_instance WHERE create_time >= ? AND create_time < ? GROUP BY DATE(create_time) ORDER BY DATE(create_time) ASC
+        List<Map<String, Object>> rows = userTaskInstanceMapper.countDistinctUserIdsGroupByDate(firstDay, end);
+        List<Long> result = new ArrayList<>();
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        Calendar iter = Calendar.getInstance();
+        iter.setTime(firstDay);
+        int idx = 0;
+        while (!iter.getTime().after(todayStart)) {
+            String key = sdf.format(iter.getTime());
+            Long cnt = 0L;
+            if (idx < rows.size()) {
+                Map<String, Object> r = rows.get(idx);
+                Object d = r.get("the_date");
+                Object c = r.get("cnt");
+                if (d != null && key.equals(d.toString())) {
+                    if (c instanceof Number) cnt = ((Number)c).longValue();
+                    else try { cnt = Long.parseLong(String.valueOf(c)); } catch(Exception ignored){}
+                    idx++;
+                }
+            }
+            result.add(cnt);
+            iter.add(Calendar.DAY_OF_MONTH, 1);
+        }
         return result;
     }
 }

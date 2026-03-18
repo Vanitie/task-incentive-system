@@ -1,5 +1,6 @@
 package com.whu.graduation.taskincentive.controller;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
 import com.whu.graduation.taskincentive.dto.ApiResponse;
 import com.whu.graduation.taskincentive.dto.PageResult;
@@ -61,6 +62,27 @@ public class UserTaskController {
         com.baomidou.mybatisplus.extension.plugins.pagination.Page<TaskView> p = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, size);
         p = userViewService.listAvailableTasksPage(p, userId, state);
         PageResult<TaskView> pr = PageResult.<TaskView>builder().total(p.getTotal()).page((int)p.getCurrent()).size((int)p.getSize()).items(p.getRecords()).build();
+        return ApiResponse.success(pr);
+    }
+
+    /**
+     * 用户任务实例列表接口，支持按用户ID、任务ID、任务状态组合条件分页查询
+     */
+    @GetMapping("/list")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<PageResult<UserTaskInstance>> listByConditions(@RequestParam(required = false) Long userId,
+                                                                     @RequestParam(required = false) Long taskId,
+                                                                     @RequestParam(required = false) Integer status,
+                                                                     @RequestParam(defaultValue = "1") int page,
+                                                                     @RequestParam(defaultValue = "20") int size) {
+        Page<UserTaskInstance> p = new Page<>(page, size);
+        p = instanceService.listByConditions(p, userId, taskId, status);
+        PageResult<UserTaskInstance> pr = PageResult.<UserTaskInstance>builder()
+                .total(p.getTotal())
+                .page((int)p.getCurrent())
+                .size((int)p.getSize())
+                .items(p.getRecords())
+                .build();
         return ApiResponse.success(pr);
     }
 

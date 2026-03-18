@@ -178,16 +178,56 @@ public class StatsServiceImpl implements StatsService {
         }
         long base = userMapper.countUsersBefore(rangeStart); // start之前的累计
 
-        // 2. 活跃用户（去重 user_id 按天）
-        List<Map<String, Object>> activeRows = userTaskInstanceMapper.countActiveUsersGroupByDate(rangeStart, rangeEnd);
+        // 2. 活跃用户（定义：以统计日为截止，前7天内接取过任务的去重用户数）
         Map<String, Long> activeMap = new HashMap<>();
-        for (Map<String, Object> r : activeRows) {
-            Object d = r.get("the_date"); Object c = r.get("cnt");
-            if (d != null) {
-                String key = d.toString(); long v = 0L; if (c instanceof Number) v = ((Number)c).longValue(); else try { v = Long.parseLong(String.valueOf(c)); } catch(Exception ignored){}
-                activeMap.put(key, v);
+        // 为了计算每个统计日的7日窗口，需要把查询起点前移6天
+        Calendar activeStartCal = Calendar.getInstance();
+        activeStartCal.setTime(rangeStart);
+        activeStartCal.add(Calendar.DAY_OF_MONTH, -6);
+        Date activeDataStart = activeStartCal.getTime();
+        // 一次性查询 [activeDataStart, rangeEnd) 内每天的 user_id
+        List<Map<String, Object>> activeSourceRows = userTaskInstanceMapper.selectUserIdsByDate(activeDataStart, rangeEnd);
+        // 按天聚合成 date -> userIdSet
+        Map<String, Set<Long>> dateToUsers = new HashMap<>();
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        for (Map<String, Object> r : activeSourceRows) {
+            Object d = r.get("the_date");
+            Object uid = r.get("user_id");
+            if (d == null || uid == null) continue;
+
+            Long userId = null;
+            if (uid instanceof Number) {
+                userId = ((Number) uid).longValue();
+            } else {
+                try {
+                    userId = Long.parseLong(String.valueOf(uid));
+                } catch (Exception ignored) {}
             }
+            if (userId == null) continue;
+
+            String dayKey = d.toString();
+            dateToUsers.computeIfAbsent(dayKey, k -> new HashSet<>()).add(userId);
         }
+        // 对每个统计日 D，计算 [D-6, D] 的并集大小
+        Calendar dayIter = Calendar.getInstance();
+        dayIter.setTime(rangeStart);
+        while (dayIter.getTime().before(rangeEnd)) {
+            Set<Long> union = new HashSet<>();
+            Calendar scan = (Calendar) dayIter.clone();
+            scan.add(Calendar.DAY_OF_MONTH, -6);
+            while (!scan.getTime().after(dayIter.getTime())) {
+                String k = sdf.format(scan.getTime());
+                Set<Long> s = dateToUsers.get(k);
+                if (s != null && !s.isEmpty()) {
+                    union.addAll(s);
+                }
+                scan.add(Calendar.DAY_OF_MONTH, 1);
+            }
+            String statDayKey = sdf.format(dayIter.getTime());
+            activeMap.put(statDayKey, (long) union.size());
+            dayIter.add(Calendar.DAY_OF_MONTH, 1);
+        }
+
 
         // 3. 接取数/完成数
         List<Map<String, Object>> recvRows = userTaskInstanceMapper.countTasksGroupByDate(rangeStart, rangeEnd);

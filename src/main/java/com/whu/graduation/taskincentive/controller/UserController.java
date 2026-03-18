@@ -122,10 +122,11 @@ public class UserController {
     /**
      * 统计过去7天内每日接取任务的用户数
      */
+    // 替换 countToday 方法
     @GetMapping("/count/today")
     @PreAuthorize("hasAnyRole('ADMIN')")
     public ApiResponse<ChartData> countToday(){
-        List<Long> data = userService.getActiveUserCountLast7Days();
+        List<Long> data = userService.getTaskReceiveUserCountLast7Days();
         long value = data.get(data.size() - 1);
         String percent = computePercent(data);
         ChartData chart = ChartData.builder()

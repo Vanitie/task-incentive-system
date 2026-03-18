@@ -99,4 +99,14 @@ public interface UserTaskInstanceMapper extends BaseMapper<UserTaskInstance> {
      */
     @Select("SELECT COUNT(1) FROM user_task_instance WHERE create_time >= #{start} AND create_time < #{end} AND status = #{status}")
     long countTasksCompletedBetween(@Param("start") Date start, @Param("end") Date end, @Param("status") Integer status);
+
+    /**
+     * 按用户ID、任务ID、状态组合条件查询任务实例列表
+     */
+    List<UserTaskInstance> selectByConditions(@Param("userId") Long userId, @Param("taskId") Long taskId, @Param("status") Integer status);
+
+    /**
+     * 按日期分组统计过去7天每天接取任务的用户数（去重 user_id）
+     */
+    List<Map<String, Object>> countDistinctUserIdsGroupByDate(@Param("start") Date start, @Param("end") Date end);
 }

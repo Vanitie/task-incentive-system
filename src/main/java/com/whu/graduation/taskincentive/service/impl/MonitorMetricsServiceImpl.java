@@ -1,7 +1,6 @@
 package com.whu.graduation.taskincentive.service.impl;
 
 import com.whu.graduation.taskincentive.service.MonitorMetricsService;
-import com.whu.graduation.taskincentive.dto.ApiResponse;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import jakarta.servlet.FilterChain;
@@ -19,28 +18,45 @@ import java.nio.file.FileSystems;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.LongAdder;
+
 
 @Service
 @RequiredArgsConstructor
 public class MonitorMetricsServiceImpl implements MonitorMetricsService {
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter MINUTE_KEY_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    private static final DateTimeFormatter AXIS_FMT = DateTimeFormatter.ofPattern("HH:mm");
+
+    private static final LongAdder GLOBAL_REQUEST_COUNT = new LongAdder();
+    private static volatile long lastQpsTimestampMs = System.currentTimeMillis();
+    private static volatile long lastQpsRequestCount = 0L;
+    private static volatile double lastQpsValue = 0.0;
+
+    private static final ConcurrentMap<String, List<Double>> MINUTE_LATENCY_BUCKET = new ConcurrentHashMap<>();
 
     private final MeterRegistry meterRegistry;
 
     @Override
     public double getQps() {
-        double oneMinuteRate = meterRegistry.get("http.server.requests").timer().count();
-        return round(twoDecimal(oneMinuteRate / 60.0));
+        double requestsInLastMinute = getLastMinuteRequestCount();
+        return round(twoDecimal(requestsInLastMinute / 60.0));
     }
 
     @Override
     public long getRequestCount() {
-        return meterRegistry.get("http.server.requests").timer().count();
+        return Math.round(getTotalHttpRequestCount());
     }
 
     @Override
@@ -102,7 +118,6 @@ public class MonitorMetricsServiceImpl implements MonitorMetricsService {
 
     @Override
     public double getMemoryUsagePercent() {
-        // 系统物理内存统计
         java.lang.management.OperatingSystemMXBean bean = ManagementFactory.getOperatingSystemMXBean();
         if (bean instanceof com.sun.management.OperatingSystemMXBean osBean) {
             long totalPhysical = osBean.getTotalMemorySize();
@@ -148,38 +163,29 @@ public class MonitorMetricsServiceImpl implements MonitorMetricsService {
 
     @Override
     public Map<String, Object> getTpSeriesLast20Minutes() {
-        // 横坐标：最近20分钟时间点
-        java.time.LocalDateTime now = java.time.LocalDateTime.now();
-        java.util.List<String> xAxis = new java.util.ArrayList<>();
-        java.util.List<Double> tp90List = new java.util.ArrayList<>();
-        java.util.List<Double> tp95List = new java.util.ArrayList<>();
-        java.util.List<Double> tp99List = new java.util.ArrayList<>();
-        java.time.format.DateTimeFormatter fmt = java.time.format.DateTimeFormatter.ofPattern("HH:mm");
+        LocalDateTime nowMinute = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES);
+
+        List<String> xAxis = new ArrayList<>();
+        List<Double> tp90List = new ArrayList<>();
+        List<Double> tp95List = new ArrayList<>();
+        List<Double> tp99List = new ArrayList<>();
+
         for (int i = 19; i >= 0; i--) {
-            java.time.LocalDateTime t = now.minusMinutes(i);
-            xAxis.add(fmt.format(t));
-            // 采集每分钟的tp90/95/99
-            // 这里用全局Timer快照近似
-            io.micrometer.core.instrument.Timer timer = meterRegistry.find("http.server.requests").timer();
-            double tp90 = 0.0, tp95 = 0.0, tp99 = 0.0;
-            if (timer != null) {
-                var snapshot = timer.takeSnapshot();
-                var values = snapshot.percentileValues();
-                for (var v : values) {
-                    if (Math.abs(v.percentile() - 0.90) < 0.0001) tp90 = round(twoDecimal(v.value(java.util.concurrent.TimeUnit.MILLISECONDS)));
-                    if (Math.abs(v.percentile() - 0.95) < 0.0001) tp95 = round(twoDecimal(v.value(java.util.concurrent.TimeUnit.MILLISECONDS)));
-                    if (Math.abs(v.percentile() - 0.99) < 0.0001) tp99 = round(twoDecimal(v.value(java.util.concurrent.TimeUnit.MILLISECONDS)));
-                }
-            }
-            tp90List.add(tp90);
-            tp95List.add(tp95);
-            tp99List.add(tp99);
+            LocalDateTime minute = nowMinute.minusMinutes(i);
+            String key = minute.format(MINUTE_KEY_FMT);
+            xAxis.add(minute.format(AXIS_FMT));
+
+            List<Double> costs = MINUTE_LATENCY_BUCKET.getOrDefault(key, Collections.emptyList());
+            tp90List.add(round(twoDecimal(percentile(costs, 0.90))));
+            tp95List.add(round(twoDecimal(percentile(costs, 0.95))));
+            tp99List.add(round(twoDecimal(percentile(costs, 0.99))));
         }
-        java.util.List<java.util.Map<String, Object>> series = new java.util.ArrayList<>();
-        series.add(java.util.Map.of("name", "tp90", "data", tp90List));
-        series.add(java.util.Map.of("name", "tp95", "data", tp95List));
-        series.add(java.util.Map.of("name", "tp99", "data", tp99List));
-        return java.util.Map.of("xAxis", xAxis, "series", series);
+
+        List<Map<String, Object>> series = new ArrayList<>();
+        series.add(Map.of("name", "tp90", "data", tp90List));
+        series.add(Map.of("name", "tp95", "data", tp95List));
+        series.add(Map.of("name", "tp99", "data", tp99List));
+        return Map.of("xAxis", xAxis, "series", series);
     }
 
     private double readPercentileMs(double percentile) {
@@ -208,6 +214,70 @@ public class MonitorMetricsServiceImpl implements MonitorMetricsService {
         return val;
     }
 
+    private static void recordRequestLatency(long costMs) {
+        LocalDateTime minute = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES);
+        String key = minute.format(MINUTE_KEY_FMT);
+        MINUTE_LATENCY_BUCKET.computeIfAbsent(key, k -> Collections.synchronizedList(new ArrayList<>())).add((double) costMs);
+
+        LocalDateTime expireBefore = minute.minusMinutes(60);
+        for (String k : MINUTE_LATENCY_BUCKET.keySet()) {
+            try {
+                LocalDateTime t = LocalDateTime.parse(k, MINUTE_KEY_FMT);
+                if (t.isBefore(expireBefore)) {
+                    MINUTE_LATENCY_BUCKET.remove(k);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private static double percentile(List<Double> values, double p) {
+        if (values == null || values.isEmpty()) {
+            return 0.0;
+        }
+        List<Double> copy = new ArrayList<>(values);
+        copy.sort(Comparator.naturalOrder());
+        int n = copy.size();
+        int idx = (int) Math.ceil(p * n) - 1;
+        if (idx < 0) idx = 0;
+        if (idx >= n) idx = n - 1;
+        return copy.get(idx);
+    }
+
+    /**
+     * 汇总所有 http.server.requests 的 timer 分片，得到全量请求数。
+     */
+    private double getTotalHttpRequestCount() {
+        return meterRegistry.find("http.server.requests")
+                .timers()
+                .stream()
+                .mapToDouble(Timer::count)
+                .sum();
+    }
+
+    /**
+     * 最近60秒请求数（平滑估算）：
+     * 当前分钟全量 + 上一分钟按剩余秒数加权，避免跨分钟瞬时归零。
+     */
+    private double getLastMinuteRequestCount() {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime currentMinute = now.truncatedTo(ChronoUnit.MINUTES);
+        LocalDateTime prevMinute = currentMinute.minusMinutes(1);
+
+        String currentKey = currentMinute.format(MINUTE_KEY_FMT);
+        String prevKey = prevMinute.format(MINUTE_KEY_FMT);
+
+        List<Double> currentCosts = MINUTE_LATENCY_BUCKET.getOrDefault(currentKey, Collections.emptyList());
+        List<Double> prevCosts = MINUTE_LATENCY_BUCKET.getOrDefault(prevKey, Collections.emptyList());
+
+        int sec = now.getSecond(); // 0~59
+        // 最近60秒窗口里，上一分钟贡献比例 = (60-sec)/60
+        double prevWeight = (60.0 - sec) / 60.0;
+
+        return currentCosts.size() + prevCosts.size() * prevWeight;
+    }
+
+
     @Service
     public static class HourWindowCounter extends OncePerRequestFilter {
 
@@ -222,9 +292,14 @@ public class MonitorMetricsServiceImpl implements MonitorMetricsService {
                                         FilterChain filterChain) throws ServletException, IOException {
             rollIfNeeded();
             TOTAL_COUNT.increment();
+
+            long startNs = System.nanoTime();
             try {
                 filterChain.doFilter(request, response);
             } finally {
+                long costMs = (System.nanoTime() - startNs) / 1_000_000;
+                recordRequestLatency(costMs);
+
                 int status = response.getStatus();
                 if (status >= 200 && status < 400) {
                     SUCCESS_COUNT.increment();

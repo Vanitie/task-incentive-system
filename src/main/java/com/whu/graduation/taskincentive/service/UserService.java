@@ -78,4 +78,9 @@ public interface UserService {
      * 获取过去 7 天内每天的活跃用户数（接取任务的去重 user_id），顺序从 6 天前到今天
      */
     List<Long> getActiveUserCountLast7Days();
+
+    /**
+     * 获取过去 7 天内每天的接取过任务的去重用户数，顺序从 6 天前到今天
+     */
+    List<Long> getTaskReceiveUserCountLast7Days();
 }

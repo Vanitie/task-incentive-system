@@ -60,4 +60,15 @@ public interface UserRewardRecordService {
      * 获取过去 7 天每天的领取奖励去重用户数，顺序从 6 天前到今天
      */
     List<Long> getReceivedUsersLast7Days();
+
+    /**
+     * 分页条件查询用户奖励记录
+     * @param page 分页对象
+     * @param userId 用户ID
+     * @param taskId 任务ID
+     * @param rewardType 奖励类型
+     * @param status 奖励状态
+     * @return 分页结果
+     */
+    Page<UserRewardRecord> listByConditions(Page<UserRewardRecord> page, Long userId, Long taskId, String rewardType, Integer status);
 }

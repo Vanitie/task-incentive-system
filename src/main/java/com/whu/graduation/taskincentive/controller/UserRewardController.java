@@ -77,4 +77,26 @@ public class UserRewardController {
                 .build();
         return ApiResponse.success(chart);
     }
+
+    /**
+     * 用户奖励记录列表接口，支持按用户ID、任务ID、奖励类型、奖励状态组合条件分页查询
+     */
+    @GetMapping("/list")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<PageResult<UserRewardRecord>> listByConditions(@RequestParam(required = false) Long userId,
+                                                                     @RequestParam(required = false) Long taskId,
+                                                                     @RequestParam(required = false) String rewardType,
+                                                                     @RequestParam(required = false) Integer status,
+                                                                     @RequestParam(defaultValue = "1") int page,
+                                                                     @RequestParam(defaultValue = "20") int size) {
+        Page<UserRewardRecord> p = new Page<>(page, size);
+        p = recordService.listByConditions(p, userId, taskId, rewardType, status);
+        PageResult<UserRewardRecord> pr = PageResult.<UserRewardRecord>builder()
+                .total(p.getTotal())
+                .page((int)p.getCurrent())
+                .size((int)p.getSize())
+                .items(p.getRecords())
+                .build();
+        return ApiResponse.success(pr);
+    }
 }

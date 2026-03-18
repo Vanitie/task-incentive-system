@@ -90,11 +90,12 @@ public class TaskConfigController {
             @RequestParam(defaultValue = "false") boolean asc
     ) {
         Page<TaskConfig> p = new Page<>(page, size);
-        // 设置排序
+        // 修正排序字段为数据库字段名
+        String orderColumn = "endTime".equals(orderByEndTime) ? "end_time" : orderByEndTime;
         if (asc) {
-            p.addOrder(com.baomidou.mybatisplus.core.metadata.OrderItem.asc(orderByEndTime));
+            p.addOrder(com.baomidou.mybatisplus.core.metadata.OrderItem.asc(orderColumn));
         } else {
-            p.addOrder(com.baomidou.mybatisplus.core.metadata.OrderItem.desc(orderByEndTime));
+            p.addOrder(com.baomidou.mybatisplus.core.metadata.OrderItem.desc(orderColumn));
         }
         Page<TaskConfig> result = taskConfigService.searchByConditions(taskName, taskType, status, rewardType, p);
         PageResult<TaskConfig> pr = PageResult.<TaskConfig>builder()

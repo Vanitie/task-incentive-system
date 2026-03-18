@@ -42,4 +42,10 @@ public interface UserRewardRecordMapper extends BaseMapper<UserRewardRecord> {
      */
     @Select("SELECT DATE(create_time) as the_date, user_id as user_id FROM user_reward_record WHERE create_time >= #{start} AND create_time < #{end}")
     List<Map<String, Object>> selectUserIdsByDate(@Param("start") Date start, @Param("end") Date end);
+
+    /**
+     * 按日期分组统计过去7天每天领取奖励的用户数（去重 user_id）
+     */
+    @Select("SELECT DATE(create_time) as the_date, COUNT(DISTINCT user_id) as cnt FROM user_reward_record WHERE create_time >= #{start} AND create_time < #{end} GROUP BY DATE(create_time) ORDER BY DATE(create_time) ASC")
+    List<Map<String, Object>> countDistinctUserIdsGroupByDate(@Param("start") Date start, @Param("end") Date end);
 }

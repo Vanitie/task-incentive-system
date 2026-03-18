@@ -40,10 +40,11 @@ public class SecurityConfig {
         http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         if (isDev) {
-            // 开发环境：开放 swagger 与 auth
+            // 开发环境：开放 swagger、auth 和 actuator
             http.authorizeHttpRequests(auth -> auth
                     .requestMatchers("/api/auth/**").permitAll()
                     .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
+                    .requestMatchers("/actuator/**").permitAll()
                     .anyRequest().authenticated()
             );
         } else {
@@ -51,6 +52,7 @@ public class SecurityConfig {
             http.authorizeHttpRequests(auth -> auth
                     .requestMatchers("/api/auth/**").permitAll()
                     .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").denyAll()
+                    .requestMatchers("/actuator/**").denyAll()
                     .anyRequest().authenticated()
             );
         }

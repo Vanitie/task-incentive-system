@@ -66,4 +66,9 @@ public interface UserTaskInstanceService {
      * 分页查询用户的任务实例，可按 status 过滤
      */
     Page<UserTaskInstance> selectByUserIdPage(com.baomidou.mybatisplus.extension.plugins.pagination.Page<com.whu.graduation.taskincentive.dao.entity.UserTaskInstance> page, Long userId, Integer status);
+
+    /**
+     * 按用户ID、任务ID、状态组合条件分页查询任务实例列表
+     */
+    Page<UserTaskInstance> listByConditions(Page<UserTaskInstance> page, Long userId, Long taskId, Integer status);
 }

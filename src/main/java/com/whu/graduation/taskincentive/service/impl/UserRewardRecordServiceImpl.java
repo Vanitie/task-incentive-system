@@ -91,6 +91,7 @@ public class UserRewardRecordServiceImpl extends ServiceImpl<UserRewardRecordMap
 
     @Override
     public List<Long> getReceivedUsersLast7Days() {
+        // 直接在数据库层面分组统计：按日期分组，组内对 user_id 去重计数
         Calendar cal = Calendar.getInstance();
         cal.set(Calendar.HOUR_OF_DAY, 0);
         cal.set(Calendar.MINUTE, 0);
@@ -99,49 +100,43 @@ public class UserRewardRecordServiceImpl extends ServiceImpl<UserRewardRecordMap
         Date todayStart = cal.getTime();
         cal.add(Calendar.DAY_OF_MONTH, -6);
         Date firstDay = cal.getTime();
-
-        // data start = firstDay -6 days
-        Calendar minCal = Calendar.getInstance();
-        minCal.setTime(firstDay);
-        minCal.add(Calendar.DAY_OF_MONTH, -6);
-        Date dataStart = minCal.getTime();
-        // data end = today + 1
         Calendar endCal = Calendar.getInstance();
         endCal.setTime(todayStart);
         endCal.add(Calendar.DAY_OF_MONTH, 1);
-        Date dataEnd = endCal.getTime();
-
-        List<Map<String, Object>> rows = userRewardRecordMapper.selectUserIdsByDate(dataStart, dataEnd);
-        Map<String, Set<Long>> dateToUsers = new HashMap<>();
-        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
-        for (Map<String, Object> r : rows) {
-            Object d = r.get("the_date");
-            Object uid = r.get("user_id");
-            if (d == null || uid == null) continue;
-            String ds = d.toString();
-            Long userId = null;
-            if (uid instanceof Number) userId = ((Number) uid).longValue();
-            else try { userId = Long.parseLong(uid.toString()); } catch (Exception ignored){}
-            if (userId == null) continue;
-            dateToUsers.computeIfAbsent(ds, k -> new HashSet<>()).add(userId);
-        }
-
+        Date end = endCal.getTime();
+        List<Map<String, Object>> rows = userRewardRecordMapper.countDistinctUserIdsGroupByDate(firstDay, end);
         List<Long> result = new ArrayList<>();
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
         Calendar iter = Calendar.getInstance();
         iter.setTime(firstDay);
+        int idx = 0;
         while (!iter.getTime().after(todayStart)) {
-            Set<Long> union = new HashSet<>();
-            Calendar scan = (Calendar) iter.clone();
-            scan.add(Calendar.DAY_OF_MONTH, -6);
-            while (!scan.getTime().after(iter.getTime())) {
-                String key = sdf.format(scan.getTime());
-                Set<Long> s = dateToUsers.get(key);
-                if (s != null && !s.isEmpty()) union.addAll(s);
-                scan.add(Calendar.DAY_OF_MONTH, 1);
+            String key = sdf.format(iter.getTime());
+            Long cnt = 0L;
+            if (idx < rows.size()) {
+                Map<String, Object> r = rows.get(idx);
+                Object d = r.get("the_date");
+                Object c = r.get("cnt");
+                if (d != null && key.equals(d.toString())) {
+                    if (c instanceof Number) cnt = ((Number)c).longValue();
+                    else try { cnt = Long.parseLong(String.valueOf(c)); } catch(Exception ignored){}
+                    idx++;
+                }
             }
-            result.add((long) union.size());
+            result.add(cnt);
             iter.add(Calendar.DAY_OF_MONTH, 1);
         }
         return result;
+    }
+
+    @Override
+    public Page<UserRewardRecord> listByConditions(Page<UserRewardRecord> page, Long userId, Long taskId, String rewardType, Integer status) {
+        QueryWrapper<UserRewardRecord> wrapper = new QueryWrapper<>();
+        if (userId != null) wrapper.eq("user_id", userId);
+        if (taskId != null) wrapper.eq("task_id", taskId);
+        if (rewardType != null && !rewardType.isEmpty()) wrapper.eq("reward_type", rewardType);
+        if (status != null) wrapper.eq("status", status);
+        wrapper.orderByDesc("create_time");
+        return this.baseMapper.selectPage(page, wrapper);
     }
 }

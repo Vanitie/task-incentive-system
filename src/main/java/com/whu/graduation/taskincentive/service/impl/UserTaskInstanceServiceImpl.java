@@ -363,4 +363,14 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "接取任务失败");
         }
     }
+
+    @Override
+    public Page<UserTaskInstance> listByConditions(Page<UserTaskInstance> page, Long userId, Long taskId, Integer status) {
+        QueryWrapper<UserTaskInstance> wrapper = new QueryWrapper<>();
+        if (userId != null) wrapper.eq("user_id", userId);
+        if (taskId != null) wrapper.eq("task_id", taskId);
+        if (status != null) wrapper.eq("status", status);
+        wrapper.orderByDesc("update_time");
+        return this.baseMapper.selectPage(page, wrapper);
+    }
 }
