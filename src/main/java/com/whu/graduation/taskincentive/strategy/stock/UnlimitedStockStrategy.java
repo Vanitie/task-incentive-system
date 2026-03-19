@@ -1,4 +1,4 @@
-package com.whu.graduation.taskincentive.strategy.reward;
+package com.whu.graduation.taskincentive.strategy.stock;
 
 import com.whu.graduation.taskincentive.common.enums.StockType;
 import lombok.extern.slf4j.Slf4j;
@@ -8,7 +8,7 @@ import org.springframework.stereotype.Service;
  * 不限量策略
  */
 @Slf4j
-@Service
+@Service("UNLIMITED")
 public class UnlimitedStockStrategy implements StockStrategy {
 
     @Override

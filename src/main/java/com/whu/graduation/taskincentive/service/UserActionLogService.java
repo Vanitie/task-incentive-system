@@ -77,4 +77,9 @@ public interface UserActionLogService {
      * @return 行为总数
      */
     Long countUserAction(Long userId, String actionType);
+
+    /**
+     * 组合条件分页查询用户行为日志
+     */
+    Page<UserActionLog> queryByConditions(Page<UserActionLog> page, Long userId, String actionType, String startTime, String endTime);
 }

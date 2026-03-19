@@ -2,7 +2,7 @@ package com.whu.graduation.taskincentive.common.enums;
 
 public enum RewardType {
 
-    POINTS,
+    POINT,
     BADGE,
     ITEM
 

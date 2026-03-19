@@ -82,4 +82,15 @@ public class UserActionLogServiceImpl extends ServiceImpl<UserActionLogMapper, U
                 .eq(UserActionLog::getActionType,actionType)
         );
     }
+
+    @Override
+    public Page<UserActionLog> queryByConditions(Page<UserActionLog> page, Long userId, String actionType, String startTime, String endTime) {
+        QueryWrapper<UserActionLog> wrapper = new QueryWrapper<>();
+        if (userId != null) wrapper.eq("user_id", userId);
+        if (actionType != null && !actionType.isEmpty()) wrapper.eq("action_type", actionType);
+        if (startTime != null && !startTime.isEmpty()) wrapper.ge("create_time", startTime);
+        if (endTime != null && !endTime.isEmpty()) wrapper.le("create_time", endTime);
+        wrapper.orderByDesc("create_time");
+        return this.baseMapper.selectPage(page, wrapper);
+    }
 }

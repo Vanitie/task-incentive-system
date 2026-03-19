@@ -17,6 +17,7 @@ import org.springframework.kafka.listener.ConcurrentMessageListenerContainer;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -39,11 +40,16 @@ public class TaskConfigChangeConsumer {
     @Autowired
     private ConcurrentKafkaListenerContainerFactory<String, String> factory;
 
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
+
     // 从配置读取 topic，默认与 canal.properties 中一致
     @Value("${canal.mq.topic:task-config-change}")
     private String topic;
 
     private ConcurrentMessageListenerContainer<String, String> container;
+
+    private static final String TASK_CONFIG_CREATE_TIME_PREFIX = "task_config_create_time:";
 
     @PostConstruct
     public void init() {
@@ -127,6 +133,15 @@ public class TaskConfigChangeConsumer {
                     try {
                         taskConfigService.invalidateTaskConfig(taskId);
                         taskConfigService.refreshTaskConfig(taskId);
+                        // 打点：统计耗时
+                        String ts = stringRedisTemplate.opsForValue().get(TASK_CONFIG_CREATE_TIME_PREFIX + taskId);
+                        if (ts != null) {
+                            long createTime = 0L;
+                            try { createTime = Long.parseLong(ts); } catch (Exception ignore) {}
+                            long now = System.currentTimeMillis();
+                            long cost = now - createTime;
+                            log.info("taskConfig refresh latency: taskId={}, cost={}ms", taskId, cost);
+                        }
                     } catch (Exception e) {
                         // 单条失败不影响其它条目，记录并继续
                         log.error("failed to refresh task config for id={} ", taskId, e);

@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -25,6 +26,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.HashMap;
+import java.util.Date;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -44,6 +46,9 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
 
     @Autowired
     private TaskStockService taskStockService;
+
+    private final StringRedisTemplate stringRedisTemplate;
+    private static final String TASK_CONFIG_CREATE_TIME_PREFIX = "task_config_create_time:";
 
     // 本地缓存
     private final Cache<Long, TaskConfig> localTaskConfigCache = Caffeine.newBuilder()
@@ -102,38 +107,27 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
     @Transactional(rollbackFor = Exception.class)
     public boolean save(TaskConfig taskConfig) {
         taskConfig.setId(IdWorker.getId());
-        // 修正：ruleConfig 不能为空字符串，否则 MySQL JSON 字段会报错
         if (taskConfig.getRuleConfig() == null || taskConfig.getRuleConfig().trim().isEmpty()) {
             taskConfig.setRuleConfig("{}");
         }
         boolean saved = super.save(taskConfig);
         if (!saved) return false;
-
-        // 若为限量任务，创建库存记录（taskId 使用 taskConfig.id）
-        if ("LIMITED".equalsIgnoreCase(taskConfig.getTaskType()) && taskConfig.getTotalStock() != null) {
-            TaskStock stock = TaskStock.builder()
-                    .taskId(taskConfig.getId())
-                    .availableStock(taskConfig.getTotalStock())
-                    .version(0)
-                    .build();
-            // 延后在事务提交后持久化库存，保证一致性
-            if (TransactionSynchronizationManager.isSynchronizationActive()) {
-                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                    @Override
-                    public void afterCommit() {
-                        try {
-                            taskStockService.save(stock);
-                        } catch (Exception e) {
-                            log.warn("create taskStock after commit failed for taskId={}, err={}", taskConfig.getId(), e.getMessage());
-                        }
-                    }
-                });
-            } else {
-                try { taskStockService.save(stock); } catch (Exception e) { log.warn("create taskStock failed, err={}", e.getMessage()); }
-            }
+        // 打点：记录创建时间
+        stringRedisTemplate.opsForValue().set(TASK_CONFIG_CREATE_TIME_PREFIX + taskConfig.getId(), String.valueOf(System.currentTimeMillis()));
+        // 根据库存类型维护库存表
+        if ("STOCK_TYPE_LIMITED".equalsIgnoreCase(taskConfig.getStockType())) {
+            TaskStock stock = new TaskStock();
+            stock.setTaskId(taskConfig.getId());
+            stock.setAvailableStock(taskConfig.getTotalStock() != null ? taskConfig.getTotalStock() : 0);
+            stock.setVersion(0);
+            stock.setCreateTime(new Date());
+            stock.setUpdateTime(new Date());
+            taskStockService.save(stock);
+        } else {
+            // 非限量任务清理库存表
+            taskStockService.deleteById(taskConfig.getId());
         }
-
-        // 更新缓存（事务后执行）
+        System.out.println("[打点] 任务配置创建: taskId=" + taskConfig.getId() + ", 时间=" + System.currentTimeMillis());
         writeCacheAfterCommit(taskConfig);
         return true;
     }
@@ -147,8 +141,20 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
         }
         boolean updated = super.updateById(taskConfig);
         if (!updated) return false;
-
-        // 简化：统一在事务提交后刷新缓存
+        // 打点：记录更新时间
+        stringRedisTemplate.opsForValue().set(TASK_CONFIG_CREATE_TIME_PREFIX + taskConfig.getId(), String.valueOf(System.currentTimeMillis()));
+        // 根据库存类型维护库存表
+        if ("STOCK_TYPE_LIMITED".equalsIgnoreCase(taskConfig.getStockType())) {
+            TaskStock stock = new TaskStock();
+            stock.setTaskId(taskConfig.getId());
+            stock.setAvailableStock(taskConfig.getTotalStock() != null ? taskConfig.getTotalStock() : 0);
+            stock.setVersion(0);
+            stock.setUpdateTime(new Date());
+            taskStockService.update(stock);
+        } else {
+            taskStockService.deleteById(taskConfig.getId());
+        }
+        System.out.println("[打点] 任务配置更新: taskId=" + taskConfig.getId() + ", 时间=" + System.currentTimeMillis());
         writeCacheAfterCommit(taskConfig);
         return true;
     }

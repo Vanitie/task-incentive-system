@@ -8,7 +8,7 @@ import com.whu.graduation.taskincentive.dto.Reward;
 import com.whu.graduation.taskincentive.mq.RewardProducer;
 import com.whu.graduation.taskincentive.service.RewardService;
 import com.whu.graduation.taskincentive.strategy.reward.RewardStrategy;
-import com.whu.graduation.taskincentive.strategy.reward.StockStrategy;
+import com.whu.graduation.taskincentive.strategy.stock.StockStrategy;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;

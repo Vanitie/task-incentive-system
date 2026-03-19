@@ -8,6 +8,7 @@ import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
 import com.whu.graduation.taskincentive.dto.Reward;
 import com.whu.graduation.taskincentive.event.UserEvent;
 import com.whu.graduation.taskincentive.service.RewardService;
+import com.whu.graduation.taskincentive.strategy.stock.StockStrategy;
 import com.whu.graduation.taskincentive.strategy.task.TaskStrategy;
 import com.whu.graduation.taskincentive.service.UserTaskInstanceService;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
@@ -31,7 +32,10 @@ import java.util.stream.Collectors;
 public class TaskEngine {
 
     @Autowired
-    private Map<String, TaskStrategy> strategies;
+    private Map<String, TaskStrategy> taskStrategyMap; // Spring 会自动注入所有 TaskStrategy 实现类，key 为 @Component 的 value
+
+    @Autowired
+    private Map<String, StockStrategy> stockStrategyMap;
 
     @Autowired
     private UserTaskInstanceService instanceService;
@@ -78,36 +82,7 @@ public class TaskEngine {
                     : userInstances.stream().filter(Objects::nonNull).filter(i -> i.getStatus() != null && i.getStatus() > 0 && i.getTaskId() != null)
                     .collect(Collectors.toMap(UserTaskInstance::getTaskId, i -> i));
 
-            for (Long taskId : eventTaskIds) {
-                TaskConfig taskConfig = configs.get(taskId);
-                if (taskConfig == null) {
-                    log.warn("taskConfig not found, taskId={}", taskId);
-                    continue;
-                }
-                TaskStrategy strategy = strategies.get(taskConfig.getTaskType());
-                if (strategy == null) {
-                    log.warn("no strategy for taskType={}, taskId={}", taskConfig.getTaskType(), taskId);
-                    continue;
-                }
-                UserTaskInstance instance = instanceByTaskId.get(taskId);
-                if (instance == null) {
-                    log.debug("user {} accepted task {} but instance not found, skip", event.getUserId(), taskId);
-                    continue;
-                }
-                if (strategy.execute(event, taskConfig, instance)) {
-                    StockType stockType = (taskConfig.getTotalStock() != null && taskConfig.getTotalStock() > 0)
-                            ? StockType.LIMITED : StockType.UNLIMITED;
-                    Reward reward = Reward.builder()
-                            .rewardId(IdWorker.getId())
-                            .taskId(taskId)
-                            .rewardType(RewardType.valueOf(taskConfig.getRewardType().toUpperCase()))
-                            .amount(taskConfig.getRewardValue())
-                            .stockType(stockType)
-                            .build();
-                    rewardService.grantReward(event.getUserId(), reward);
-                }
-                instanceService.updateAndPublish(instance);
-            }
+            processMatchedTasks(event, eventTaskIds, configs, instanceByTaskId);
 
             // 4. 已通过 Redis 交集处理完毕，直接返回
             return;
@@ -141,38 +116,51 @@ public class TaskEngine {
         Map<Long, UserTaskInstance> instanceByTaskId = userInstances.stream().filter(Objects::nonNull).filter(i -> i.getStatus() != null && i.getStatus() > 0 && i.getTaskId() != null)
                 .collect(Collectors.toMap(UserTaskInstance::getTaskId, i -> i));
 
-        for (Long taskId : parsedEventTaskIds) {
+        processMatchedTasks(event, parsedEventTaskIds, configs, instanceByTaskId);
+    }
+
+    /**
+     * 公共处理逻辑：遍历任务，执行策略、库存、奖励、更新实例
+     */
+    private void processMatchedTasks(UserEvent event, Set<Long> taskIds, Map<Long, TaskConfig> configs, Map<Long, UserTaskInstance> instanceByTaskId) {
+        for (Long taskId : taskIds) {
             TaskConfig taskConfig = configs.get(taskId);
             if (taskConfig == null) {
                 log.warn("taskConfig not found, taskId={}", taskId);
                 continue;
             }
-            TaskStrategy strategy = strategies.get(taskConfig.getTaskType());
+            TaskStrategy strategy = taskStrategyMap.get(taskConfig.getTaskType());
             if (strategy == null) {
                 log.warn("no strategy for taskType={}, taskId={}", taskConfig.getTaskType(), taskId);
                 continue;
             }
             UserTaskInstance instance = instanceByTaskId.get(taskId);
             if (instance == null) {
-                log.debug("user {} accepted task {} but instance not found in map, skip", event.getUserId(), taskId);
+                log.debug("user {} accepted task {} but instance not found, skip", event.getUserId(), taskId);
                 continue;
             }
+            // 执行策略，判断是否满足完成条件（由 TaskStrategy 内部维护进度和状态更新）
             if (strategy.execute(event, taskConfig, instance)) {
-                StockType stockType = (taskConfig.getTotalStock() != null && taskConfig.getTotalStock() > 0)
-                        ? StockType.LIMITED : StockType.UNLIMITED;
-
-                Reward reward = Reward.builder()
-                        .rewardId(IdWorker.getId())
-                        .taskId(taskId)
-                        .rewardType(RewardType.valueOf(taskConfig.getRewardType().toUpperCase()))
-                        .amount(taskConfig.getRewardValue())
-                        .stockType(stockType)
-                        .build();
-
-                rewardService.grantReward(event.getUserId(), reward);
+                // 任务完成，发放奖励前先尝试获取库存（如果有限量库存的话）
+                StockStrategy stockStrategy = stockStrategyMap.get(taskConfig.getStockType());
+                if (stockStrategy != null) {
+                    boolean stockOk = stockStrategy.acquireStock(taskId);
+                    if (!stockOk) {
+                        log.info("stock not sufficient for taskId={}, userId={}, skip reward", taskId, event.getUserId());
+                        continue;
+                    }
+                    Reward reward = Reward.builder()
+                            .rewardId(IdWorker.getId())
+                            .taskId(taskId)
+                            .rewardType(RewardType.valueOf(taskConfig.getRewardType().toUpperCase()))
+                            .amount(taskConfig.getRewardValue())
+                            .stockType(StockType.valueOf(taskConfig.getStockType().toUpperCase()))
+                            .build();
+                    rewardService.grantReward(event.getUserId(), reward);
+                } else {
+                    log.warn("no stock strategy for stockType={}, taskId={}", taskConfig.getStockType(), taskId);
+                }
             }
-
-            // 4. 更新并发布用户任务实例（由 Service 负责缓存更新与 Kafka 发布）
             instanceService.updateAndPublish(instance);
         }
     }

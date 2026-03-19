@@ -31,9 +31,14 @@ public class TaskConfig {
     private String taskName;
 
     /**
-     * 任务类型：行为 TASK_TYPE_BEHAVIOR / 阶梯 TASK_TYPE_STAIR / 限量 TASK_TYPE_LIMITED
+     * 任务类型：累加 ACCUMULATE / 签到 CONTINUOUS / 阶梯 STAIR
      */
     private String taskType;
+
+    /**
+     * 库存类型：无限 UNLIMITED / 限量 LIMITED
+     */
+    private String stockType;
 
     /**
      * 触发事件类型，例如 用户学习 USER_LEARN, 用户签到 USER_SIGN

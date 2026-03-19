@@ -1,4 +1,4 @@
-package com.whu.graduation.taskincentive.strategy.reward;
+package com.whu.graduation.taskincentive.strategy.stock;
 
 import com.whu.graduation.taskincentive.common.enums.StockType;
 import com.whu.graduation.taskincentive.service.TaskStockService;
@@ -16,7 +16,7 @@ import java.util.concurrent.ThreadLocalRandom;
  * 限量策略
  */
 @Slf4j
-@Service
+@Service("LIMITED")
 public class LimitedStockStrategy implements StockStrategy {
 
     private static final int SHARD_COUNT = 8;

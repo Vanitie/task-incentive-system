@@ -23,9 +23,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.util.Date;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * 用户任务进度服务实现
@@ -122,7 +120,54 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
 
     @Override
     public List<UserTaskInstance> selectByUserId(Long userId) {
-        return userTaskInstanceMapper.selectByUserId(userId);
+        // 1. 从 Redis set 获取用户已接取任务ID集合
+        String acceptedSetKey = buildUserAcceptedSetKey(userId);
+        List<UserTaskInstance> result = new java.util.ArrayList<>();
+        java.util.Set<String> taskIdSet = null;
+        try {
+            taskIdSet = redisTemplate.opsForSet().members(acceptedSetKey);
+            if (taskIdSet != null && !taskIdSet.isEmpty()) {
+                // 2. 拼接所有缓存key
+                java.util.List<String> keys = new java.util.ArrayList<>();
+                for (String taskId : taskIdSet) {
+                    keys.add(buildUserTaskKey(userId, Long.valueOf(taskId)));
+                }
+                // 3. 批量获取缓存
+                java.util.List<String> values = redisTemplate.opsForValue().multiGet(keys);
+                if (values != null) {
+                    for (String json : values) {
+                        if (json != null) {
+                            try {
+                                UserTaskInstance instance = JSON.parseObject(json, UserTaskInstance.class);
+                                if (instance != null) result.add(instance);
+                            } catch (Exception ignore) {}
+                        }
+                    }
+                }
+                // 4. 若全部命中缓存则直接返回
+                if (result.size() == taskIdSet.size()) return result;
+            }
+        } catch (Exception e) {
+            log.debug("redis batch read failed for userId={}, err={}", userId, e.getMessage());
+        }
+        // 5. 缓存未命中或部分未命中，回退到数据库查询
+        List<UserTaskInstance> dbResult = userTaskInstanceMapper.selectByUserId(userId);
+        if (dbResult != null && !dbResult.isEmpty()) {
+            // 回写缓存（只写未命中的）
+            Set<String> newTaskIdSet = new HashSet<>();
+            for (UserTaskInstance instance : dbResult) {
+                String key = buildUserTaskKey(userId, instance.getTaskId());
+                try {
+                    redisTemplate.opsForValue().set(key, JSON.toJSONString(instance), 10, java.util.concurrent.TimeUnit.MINUTES);
+                } catch (Exception ignore) {}
+                newTaskIdSet.add(String.valueOf(instance.getTaskId()));
+            }
+            // 回写set
+            try {
+                redisTemplate.opsForSet().add(acceptedSetKey, newTaskIdSet.toArray(new String[0]));
+            } catch (Exception ignore) {}
+        }
+        return dbResult;
     }
 
     @Override

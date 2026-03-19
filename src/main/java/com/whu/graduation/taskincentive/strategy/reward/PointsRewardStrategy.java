@@ -19,7 +19,7 @@ public class PointsRewardStrategy implements RewardStrategy {
 
     @Override
     public RewardType getType() {
-        return RewardType.POINTS;
+        return RewardType.POINT;
     }
 
     @Override

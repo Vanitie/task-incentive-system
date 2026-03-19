@@ -50,4 +50,27 @@ public class UserActionLogController {
     public ApiResponse<Long> count(@RequestParam Long userId, @RequestParam(required = false) String actionType){
         return ApiResponse.success(actionLogService.countUserAction(userId, actionType));
     }
+
+    /**
+     * 组合条件分页查询用户行为日志
+     */
+    @GetMapping("/query")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<PageResult<UserActionLog>> queryByConditions(
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) String actionType,
+            @RequestParam(required = false) String startTime,
+            @RequestParam(required = false) String endTime,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        Page<UserActionLog> p = new Page<>(page, size);
+        p = actionLogService.queryByConditions(p, userId, actionType, startTime, endTime);
+        PageResult<UserActionLog> pr = PageResult.<UserActionLog>builder()
+                .total(p.getTotal())
+                .page((int)p.getCurrent())
+                .size((int)p.getSize())
+                .items(p.getRecords())
+                .build();
+        return ApiResponse.success(pr);
+    }
 }
