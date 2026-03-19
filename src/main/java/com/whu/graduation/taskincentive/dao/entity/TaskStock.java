@@ -26,6 +26,11 @@ public class TaskStock {
     private Long taskId;
 
     /**
+     * 阶梯任务的阶段序号，普通任务为1
+     */
+    private Integer stageIndex;
+
+    /**
      * 剩余库存数量
      */
     private Integer availableStock;

@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 /**
  * 任务库存控制器
  */
@@ -18,7 +20,7 @@ public class TaskStockController {
     private TaskStockService taskStockService;
 
     @GetMapping("/{taskId}")
-    public ApiResponse<TaskStock> get(@PathVariable Long taskId){
+    public ApiResponse<List<TaskStock>> get(@PathVariable Long taskId){
         return ApiResponse.success(taskStockService.getById(taskId));
     }
 

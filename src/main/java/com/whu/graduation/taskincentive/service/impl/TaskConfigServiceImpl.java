@@ -10,6 +10,7 @@ import com.whu.graduation.taskincentive.dao.entity.TaskStock;
 import com.whu.graduation.taskincentive.dao.mapper.TaskConfigMapper;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
 import com.whu.graduation.taskincentive.service.TaskStockService;
+import com.whu.graduation.taskincentive.strategy.task.StairRuleConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -116,13 +117,7 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
         stringRedisTemplate.opsForValue().set(TASK_CONFIG_CREATE_TIME_PREFIX + taskConfig.getId(), String.valueOf(System.currentTimeMillis()));
         // 根据库存类型维护库存表
         if ("STOCK_TYPE_LIMITED".equalsIgnoreCase(taskConfig.getStockType())) {
-            TaskStock stock = new TaskStock();
-            stock.setTaskId(taskConfig.getId());
-            stock.setAvailableStock(taskConfig.getTotalStock() != null ? taskConfig.getTotalStock() : 0);
-            stock.setVersion(0);
-            stock.setCreateTime(new Date());
-            stock.setUpdateTime(new Date());
-            taskStockService.save(stock);
+            createTaskStock(taskConfig);
         } else {
             // 非限量任务清理库存表
             taskStockService.deleteById(taskConfig.getId());
@@ -388,5 +383,36 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
             wrapper.eq("reward_type", rewardType);
         }
         return super.page(page, wrapper);
+    }
+
+    /**
+     * 创建限量任务时，若为阶梯任务，为每个阶梯插入一条库存记录，其他任务插入一条stageIndex=1
+     */
+    private void createTaskStock(TaskConfig config) {
+        if ("STAIR".equals(config.getTaskType()) && config.getStockType() != null && config.getStockType().equalsIgnoreCase("LIMITED") && config.getRuleConfig() != null) {
+            StairRuleConfig ruleConfig= JSON.parseObject(config.getRuleConfig(), StairRuleConfig.class);
+            if(ruleConfig.getStages() != null && !ruleConfig.getStages().isEmpty()){
+                // 先删除旧库存记录（如果有），再创建新记录
+                taskStockService.deleteById(config.getId());
+            }
+            for (int i = 0; i < ruleConfig.getStages().size(); i++) {
+                TaskStock stock = TaskStock.builder()
+                        .taskId(config.getId())
+                        .stageIndex(i + 1)
+                        .availableStock(config.getTotalStock()) // 可根据实际需求调整每阶梯库存
+                        .version(0)
+                        .build();
+                taskStockService.save(stock);
+            }
+        } else if (config.getStockType() != null && config.getStockType().equalsIgnoreCase("LIMITED")) {
+            // 普通限量任务
+            TaskStock stock = TaskStock.builder()
+                    .taskId(config.getId())
+                    .stageIndex(1)
+                    .availableStock(config.getTotalStock())
+                    .version(0)
+                    .build();
+            taskStockService.save(stock);
+        }
     }
 }

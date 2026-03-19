@@ -15,7 +15,8 @@ public interface TaskStockMapper extends BaseMapper<TaskStock> {
      */
     @Update("UPDATE task_stock " +
             "SET available_stock = available_stock - #{count}, version = version + 1 " +
-            "WHERE task_id = #{taskId} AND available_stock >= #{count}")
+            "WHERE task_id = #{taskId} AND stage_index = #{stageIndex} AND available_stock >= #{count}")
     int deductStock(@Param("taskId") Long taskId,
+                    @Param("stageIndex") Integer stageIndex,
                     @Param("count") Integer count);
 }

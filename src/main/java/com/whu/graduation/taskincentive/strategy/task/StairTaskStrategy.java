@@ -9,46 +9,64 @@ import com.whu.graduation.taskincentive.event.UserEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.*;
+
 /**
- * 阶梯任务策略
+ * 阶梯任务策略实现
+ * 1. 解析 ruleConfig 获取所有阶梯目标
+ * 2. 计算当前进度，判断本次事件后达成哪些阶梯
+ * 3. 检查已发放的阶段（extraData 记录已发放的阶梯序号）
+ * 4. 返回本次新达成且未发放奖励的所有阶梯序号
  */
 @Slf4j
 @Component("STAIR")
 public class StairTaskStrategy implements TaskStrategy {
 
     @Override
-    public boolean execute(UserEvent event, TaskConfig taskConfig, UserTaskInstance instance) {
-        int current = instance.getProgress() + event.getValue();
-        instance.setProgress(current);
+    public List<Integer> execute(UserEvent event, TaskConfig config, UserTaskInstance instance) {
+        // 解析 ruleConfig 获取阶梯目标
+        StairRuleConfig rule = null;
+        try {
+            rule = JSON.parseObject(config.getRuleConfig(), StairRuleConfig.class);
+        } catch (Exception ignore) {}
+        if (rule == null || rule.getStages() == null || rule.getStages().isEmpty()) return Collections.emptyList();
+        List<Integer> stages = rule.getStages();
 
-        // 解析 extraData
-        JSONObject extra = instance.getExtraData() != null && !instance.getExtraData().isEmpty()
-                ? JSON.parseObject(instance.getExtraData())
-                : new JSONObject();
+        // 计算本次进度
+        int oldProgress = instance.getProgress() == null ? 0 : instance.getProgress();
+        int newProgress = oldProgress + (event.getValue() == null ? 0 : event.getValue());
+        instance.setProgress(newProgress);
 
-        JSONArray rewardedStages = extra.getJSONArray("rewardedStages") != null
-                ? extra.getJSONArray("rewardedStages") : new JSONArray();
+        // extraData 记录已发放的阶梯序号（如{"grantedStages":[1,2]})
+        Set<Integer> granted = new HashSet<>();
+        if (instance.getExtraData() != null && !instance.getExtraData().isEmpty()) {
+            try {
+                Map<String, Object> ext = JSON.parseObject(instance.getExtraData());
+                Object arr = ext.get("grantedStages");
+                if (arr instanceof Collection) {
+                    for (Object o : (Collection<?>) arr) {
+                        try { granted.add(Integer.parseInt(o.toString())); } catch (Exception ignore) {}
+                    }
+                }
+            } catch (Exception ignore) {}
+        }
 
-        JSONObject ruleJson = JSON.parseObject(taskConfig.getRuleConfig());
-        JSONArray stages = ruleJson.getJSONArray("stages"); // 阶梯值 [10,50,100]
-
+        // 计算本次新达成的阶梯序号
+        List<Integer> newlyGranted = new ArrayList<>();
         for (int i = 0; i < stages.size(); i++) {
-            int stageTarget = stages.getIntValue(i);
-            if (current >= stageTarget && !rewardedStages.contains(stageTarget)) {
-                rewardedStages.add(stageTarget);
-                // 奖励发放由 TaskEngine 处理
+            int stageTarget = stages.get(i);
+            int stageIndex = i + 1;
+            if (newProgress >= stageTarget && !granted.contains(stageIndex)) {
+                newlyGranted.add(stageIndex);
+                granted.add(stageIndex);
             }
         }
 
-        extra.put("rewardedStages", rewardedStages);
-        instance.setExtraData(extra.toJSONString()); // 存回 String
+        // 更新已发放的阶段到 extraData
+        Map<String, Object> ext = new HashMap<>();
+        ext.put("grantedStages", granted);
+        instance.setExtraData(JSON.toJSONString(ext));
 
-        int finalTarget = stages.getIntValue(stages.size() - 1);
-        if (current >= finalTarget) {
-            instance.setStatus(1); // 完成
-            return true;
-        }
-
-        return false;
+        return newlyGranted;
     }
 }

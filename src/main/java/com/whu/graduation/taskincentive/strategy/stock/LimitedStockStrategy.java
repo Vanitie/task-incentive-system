@@ -50,11 +50,11 @@ public class LimitedStockStrategy implements StockStrategy {
     }
 
     @Override
-    public boolean acquireStock(Long rewardId) {
+    public boolean acquireStock(Long taskId, Integer stageIndex) {
 
         int shard = ThreadLocalRandom.current().nextInt(SHARD_COUNT);
 
-        String key = "reward:stock:" + rewardId + ":" + shard;
+        String key = "reward:stock:" + taskId + ":" + stageIndex + shard;
 
         Long result = null;
         try {
@@ -69,7 +69,7 @@ public class LimitedStockStrategy implements StockStrategy {
         if (result == null) {
             // redis不可用，直接回退到DB扣库存（如果 service 可用）
             if (taskStockService != null) {
-                return taskStockService.deductStock(rewardId, 1);
+                return taskStockService.deductStock(taskId,stageIndex,1);
             }
             return false;
         }
@@ -82,11 +82,11 @@ public class LimitedStockStrategy implements StockStrategy {
             if (taskStockService != null) {
                 // 从DB查询总库存，并平均分配到各个 shard 中；如果 DB 中库存不足，则不初始化
                 try {
-                    var stock = taskStockService.getById(rewardId);
+                    var stock = taskStockService.getByIdAndStageIndex(taskId,stageIndex);
                     if (stock != null && stock.getAvailableStock() != null && stock.getAvailableStock() > 0) {
                         int perShard = Math.max(1, stock.getAvailableStock() / SHARD_COUNT);
                         for (int i = 0; i < SHARD_COUNT; i++) {
-                            String k = "reward:stock:" + rewardId + ":" + i;
+                            String k = "reward:stock:" + taskId + ":" + stageIndex + shard;
                             try { redisTemplate.opsForValue().setIfAbsent(k, String.valueOf(perShard)); } catch (Exception ignore) {}
                         }
                         // 重试一次
@@ -99,7 +99,7 @@ public class LimitedStockStrategy implements StockStrategy {
                         }
                     }
                 } catch (Exception e) {
-                    log.warn("failed to init shards from DB for rewardId={}, err={}", rewardId, e.getMessage());
+                    log.warn("failed to init shards from DB for rewardId={}, err={}", taskId, e.getMessage());
                 }
             }
         }
@@ -107,3 +107,4 @@ public class LimitedStockStrategy implements StockStrategy {
         return false;
     }
 }
+

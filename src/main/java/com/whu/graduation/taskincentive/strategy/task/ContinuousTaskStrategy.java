@@ -9,6 +9,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 连续签到任务策略
@@ -18,7 +20,7 @@ import java.time.LocalDate;
 public class ContinuousTaskStrategy implements TaskStrategy {
 
     @Override
-    public boolean execute(UserEvent event, TaskConfig taskConfig, UserTaskInstance instance) {
+    public List<Integer> execute(UserEvent event, TaskConfig taskConfig, UserTaskInstance instance) {
         // 1. 解析 extraData
         JSONObject extra = instance.getExtraData() != null && !instance.getExtraData().isEmpty()
                 ? JSON.parseObject(instance.getExtraData())
@@ -45,9 +47,9 @@ public class ContinuousTaskStrategy implements TaskStrategy {
 
         if (continuous >= targetDays) {
             instance.setStatus(1); // 完成
-            return true;
+            return List.of(1); // 普通任务只有一个阶梯，达成即为阶梯1
         }
 
-        return false;
+        return new ArrayList<>(); // 未达成，返回空列表
     }
 }

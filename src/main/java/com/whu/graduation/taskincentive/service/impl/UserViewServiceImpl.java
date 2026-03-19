@@ -66,7 +66,7 @@ public class UserViewServiceImpl implements UserViewService {
             }
 
             if ("LIMITED".equalsIgnoreCase(cfg.getTaskType())) {
-                TaskStock stock = taskStockService.getById(cfg.getId());
+                TaskStock stock = taskStockService.getByIdAndStageIndex(cfg.getId(),1);
                 Integer remaining = stock == null ? null : stock.getAvailableStock();
                 v.setRemainingStock(remaining);
                 if (remaining == null || remaining <= 0) {
@@ -137,7 +137,7 @@ public class UserViewServiceImpl implements UserViewService {
             }
 
             if ("LIMITED".equalsIgnoreCase(cfg.getTaskType())) {
-                TaskStock stock = taskStockService.getById(cfg.getId());
+                TaskStock stock = taskStockService.getByIdAndStageIndex(cfg.getId(),1);
                 Integer remaining = stock == null ? null : stock.getAvailableStock();
                 v.setRemainingStock(remaining);
                 if (remaining == null || remaining <= 0) {

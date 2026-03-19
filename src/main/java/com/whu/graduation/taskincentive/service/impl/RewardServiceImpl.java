@@ -59,18 +59,6 @@ public class RewardServiceImpl implements RewardService {
      * 发放奖励
      */
     public boolean grantReward(Long userId, Reward reward) {
-
-        StockStrategy stockStrategy = stockStrategies.get(reward.getStockType());
-        if(stockStrategy == null){
-            log.error("未知库存类型 {}", reward.getStockType());
-            throw new BusinessException(ErrorCode.UNKNOWN_STOCK_TYPE);
-        }
-        boolean success = stockStrategy.acquireStock(reward.getRewardId());
-
-        if (!success) {
-            log.warn("库存不足 rewardCode={}", reward.getCode());
-            throw new BusinessException(ErrorCode.STOCK_INSUFFICIENT);
-        }
         rewardProducer.sendReward(userId, reward);
         return true;
     }

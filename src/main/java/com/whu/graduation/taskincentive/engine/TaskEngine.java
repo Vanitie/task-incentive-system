@@ -139,15 +139,19 @@ public class TaskEngine {
                 log.debug("user {} accepted task {} but instance not found, skip", event.getUserId(), taskId);
                 continue;
             }
-            // 执行策略，判断是否满足完成条件（由 TaskStrategy 内部维护进度和状态更新）
-            if (strategy.execute(event, taskConfig, instance)) {
-                // 任务完成，发放奖励前先尝试获取库存（如果有限量库存的话）
-                StockStrategy stockStrategy = stockStrategyMap.get(taskConfig.getStockType());
-                if (stockStrategy != null) {
-                    boolean stockOk = stockStrategy.acquireStock(taskId);
-                    if (!stockOk) {
-                        log.info("stock not sufficient for taskId={}, userId={}, skip reward", taskId, event.getUserId());
-                        continue;
+            // 执行策略，返回本次事件触发的奖励阶梯序号列表
+            List<Integer> rewardStages = strategy.execute(event, taskConfig, instance);
+            if (rewardStages != null && !rewardStages.isEmpty()) {
+                for (Integer stage : rewardStages) {
+                    // 阶梯任务：每个阶段单独扣减库存
+                    StockStrategy stockStrategy = stockStrategyMap.get(taskConfig.getStockType());
+                    boolean stockOk = true;
+                    if (stockStrategy != null) {
+                        stockOk = stockStrategy.acquireStock(taskId, stage);
+                        if (!stockOk) {
+                            log.info("stock not sufficient for taskId={}, stage={}, userId={}, skip reward", taskId, stage, event.getUserId());
+                            continue;
+                        }
                     }
                     Reward reward = Reward.builder()
                             .rewardId(IdWorker.getId())
@@ -155,10 +159,9 @@ public class TaskEngine {
                             .rewardType(RewardType.valueOf(taskConfig.getRewardType().toUpperCase()))
                             .amount(taskConfig.getRewardValue())
                             .stockType(StockType.valueOf(taskConfig.getStockType().toUpperCase()))
+                            .stageIndex(stage)
                             .build();
                     rewardService.grantReward(event.getUserId(), reward);
-                } else {
-                    log.warn("no stock strategy for stockType={}, taskId={}", taskConfig.getStockType(), taskId);
                 }
             }
             instanceService.updateAndPublish(instance);

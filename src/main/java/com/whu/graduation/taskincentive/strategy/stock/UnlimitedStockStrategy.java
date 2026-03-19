@@ -17,7 +17,7 @@ public class UnlimitedStockStrategy implements StockStrategy {
     }
 
     @Override
-    public boolean acquireStock(Long rewardId) {
+    public boolean acquireStock(Long rewardId,Integer stageIndex) {
         return true;
     }
 }
