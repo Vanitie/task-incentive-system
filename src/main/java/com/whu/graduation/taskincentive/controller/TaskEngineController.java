@@ -83,6 +83,12 @@ public class TaskEngineController {
         } else {
             event.setTime(LocalDateTime.now());
         }
+        event.setRequestId(req.getRequestId() == null ? req.getMessageId() : req.getRequestId());
+        event.setEventId(req.getEventId());
+        event.setDeviceId(req.getDeviceId());
+        event.setIp(req.getIp());
+        event.setChannel(req.getChannel());
+        event.setExt(req.getExt());
 
         try {
             try {
@@ -117,6 +123,12 @@ public class TaskEngineController {
         event.setEventType(req.getEventType());
         event.setValue(req.getValue());
         event.setTime(req.getTime() == null ? LocalDateTime.now() : req.getTime());
+        event.setRequestId(req.getRequestId() == null ? req.getMessageId() : req.getRequestId());
+        event.setEventId(req.getEventId());
+        event.setDeviceId(req.getDeviceId());
+        event.setIp(req.getIp());
+        event.setChannel(req.getChannel());
+        event.setExt(req.getExt());
 
         try {
             taskEngine.processEvent(event);
@@ -130,6 +142,24 @@ public class TaskEngineController {
     @Data
     public static class ProcessEventRequest {
         private String messageId;
+
+        /** 请求ID，用于幂等 */
+        private String requestId;
+
+        /** 事件ID */
+        private String eventId;
+
+        /** 设备ID */
+        private String deviceId;
+
+        /** IP */
+        private String ip;
+
+        /** 渠道 */
+        private String channel;
+
+        /** 扩展字段 */
+        private java.util.Map<String, Object> ext;
 
         @NotNull(message = "userId required")
         private Long userId;

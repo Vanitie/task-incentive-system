@@ -13,6 +13,9 @@ import com.whu.graduation.taskincentive.strategy.task.TaskStrategy;
 import com.whu.graduation.taskincentive.service.UserTaskInstanceService;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
 import com.whu.graduation.taskincentive.constant.CacheKeys;
+import com.whu.graduation.taskincentive.dto.risk.RiskDecisionRequest;
+import com.whu.graduation.taskincentive.dto.risk.RiskDecisionResponse;
+import com.whu.graduation.taskincentive.service.risk.RiskDecisionService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -45,6 +48,9 @@ public class TaskEngine {
 
     @Autowired
     private RewardService rewardService;
+
+    @Autowired
+    private RiskDecisionService riskDecisionService;
 
     @Autowired
     private RedisTemplate<String, String> redisTemplate;
@@ -142,8 +148,34 @@ public class TaskEngine {
             // 执行策略，返回本次事件触发的奖励阶梯序号列表
             List<Integer> rewardStages = strategy.execute(event, taskConfig, instance);
             if (rewardStages != null && !rewardStages.isEmpty()) {
+                // 1. 风控评估（达标后、扣库存前）
+                RiskDecisionRequest riskReq = RiskDecisionRequest.builder()
+                        .requestId(event.getRequestId())
+                        .eventId(event.getEventId())
+                        .userId(event.getUserId())
+                        .taskId(taskId)
+                        .eventType(event.getEventType())
+                        .eventTime(event.getTime())
+                        .amount(taskConfig.getRewardValue())
+                        .deviceId(event.getDeviceId())
+                        .ip(event.getIp())
+                        .channel(event.getChannel())
+                        .ext(event.getExt())
+                        .build();
+                RiskDecisionResponse riskResp = riskDecisionService.evaluate(riskReq);
+                if (riskResp == null || riskResp.getDecision() == null) {
+                    log.warn("risk decision empty, taskId={}, userId={}, skip", taskId, event.getUserId());
+                    continue;
+                }
+                String decision = riskResp.getDecision();
+                if ("REJECT".equalsIgnoreCase(decision) || "REVIEW".equalsIgnoreCase(decision)
+                        || "FREEZE".equalsIgnoreCase(decision)) {
+                    log.info("risk blocked, decision={}, taskId={}, userId={}", decision, taskId, event.getUserId());
+                    continue;
+                }
+
                 for (Integer stage : rewardStages) {
-                    // 阶梯任务：每个阶段单独扣减库存
+                    // 2. 阶梯任务：每个阶段单独扣减库存
                     StockStrategy stockStrategy = stockStrategyMap.get(taskConfig.getStockType());
                     boolean stockOk = true;
                     if (stockStrategy != null) {
@@ -153,11 +185,19 @@ public class TaskEngine {
                             continue;
                         }
                     }
+
+                    // 3. 构建奖励
+                    Integer rewardAmount = taskConfig.getRewardValue();
+                    if ("DEGRADE_PASS".equalsIgnoreCase(decision)) {
+                        double ratio = riskResp.getDegradeRatio() == null ? 0.5 : riskResp.getDegradeRatio();
+                        rewardAmount = Math.max(1, (int) Math.floor(rewardAmount * ratio));
+                    }
+
                     Reward reward = Reward.builder()
                             .rewardId(IdWorker.getId())
                             .taskId(taskId)
                             .rewardType(RewardType.valueOf(taskConfig.getRewardType().toUpperCase()))
-                            .amount(taskConfig.getRewardValue())
+                            .amount(rewardAmount)
                             .stockType(StockType.valueOf(taskConfig.getStockType().toUpperCase()))
                             .stageIndex(stage)
                             .build();
