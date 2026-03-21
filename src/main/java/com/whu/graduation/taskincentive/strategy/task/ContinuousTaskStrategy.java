@@ -1,9 +1,10 @@
 package com.whu.graduation.taskincentive.strategy.task;
 
 import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONObject;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
+import com.whu.graduation.taskincentive.dto.ContinuousExtraData;
+import com.whu.graduation.taskincentive.dto.ContinuousRuleConfig;
 import com.whu.graduation.taskincentive.event.UserEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -21,13 +22,21 @@ public class ContinuousTaskStrategy implements TaskStrategy {
 
     @Override
     public List<Integer> execute(UserEvent event, TaskConfig taskConfig, UserTaskInstance instance) {
-        // 1. 解析 extraData
-        JSONObject extra = instance.getExtraData() != null && !instance.getExtraData().isEmpty()
-                ? JSON.parseObject(instance.getExtraData())
-                : new JSONObject();
+        ContinuousExtraData extra = null;
+        if (instance.getExtraData() != null && !instance.getExtraData().isEmpty()) {
+            try {
+                extra = JSON.parseObject(instance.getExtraData(), ContinuousExtraData.class);
+            } catch (Exception e) {
+                log.debug("continuous extra parse failed, taskId={}, err={}", taskConfig.getId(), e.getMessage());
+            }
+        }
+        if (extra == null) {
+            extra = new ContinuousExtraData();
+            extra.setContinuousDays(0);
+        }
 
-        LocalDate lastDate = extra.getObject("lastSignDate", LocalDate.class);
-        int continuous = extra.getIntValue("continuousDays");
+        LocalDate lastDate = extra.getLastSignDate();
+        int continuous = extra.getContinuousDays() == null ? 0 : extra.getContinuousDays();
 
         LocalDate today = event.getTime().toLocalDate();
 
@@ -37,19 +46,23 @@ public class ContinuousTaskStrategy implements TaskStrategy {
             continuous = 1;
         }
 
-        extra.put("lastSignDate", today);
-        extra.put("continuousDays", continuous);
-        instance.setExtraData(extra.toJSONString()); // 存回 String
+        extra.setLastSignDate(today);
+        extra.setContinuousDays(continuous);
+        instance.setExtraData(JSON.toJSONString(extra));
 
-        // 2. 从 ruleConfig 获取目标天数
-        JSONObject ruleJson = JSON.parseObject(taskConfig.getRuleConfig());
-        int targetDays = ruleJson.getIntValue("targetDays");
+        ContinuousRuleConfig rule = null;
+        try {
+            rule = JSON.parseObject(taskConfig.getRuleConfig(), ContinuousRuleConfig.class);
+        } catch (Exception e) {
+            log.warn("continuous rule parse failed, taskId={}, err={}", taskConfig.getId(), e.getMessage());
+        }
+        int targetDays = rule == null || rule.getTargetDays() == null ? Integer.MAX_VALUE : rule.getTargetDays();
 
         if (continuous >= targetDays) {
-            instance.setStatus(1); // 完成
-            return List.of(1); // 普通任务只有一个阶梯，达成即为阶梯1
+            instance.setStatus(1);
+            return List.of(1);
         }
 
-        return new ArrayList<>(); // 未达成，返回空列表
+        return new ArrayList<>();
     }
 }

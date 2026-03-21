@@ -1,10 +1,10 @@
 package com.whu.graduation.taskincentive.strategy.task;
 
 import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONArray;
-import com.alibaba.fastjson.JSONObject;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
+import com.whu.graduation.taskincentive.dto.StairExtraData;
+import com.whu.graduation.taskincentive.dto.StairRuleConfig;
 import com.whu.graduation.taskincentive.event.UserEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -24,11 +24,12 @@ public class StairTaskStrategy implements TaskStrategy {
 
     @Override
     public List<Integer> execute(UserEvent event, TaskConfig config, UserTaskInstance instance) {
-        // 解析 ruleConfig 获取阶梯目标
         StairRuleConfig rule = null;
         try {
             rule = JSON.parseObject(config.getRuleConfig(), StairRuleConfig.class);
-        } catch (Exception ignore) {}
+        } catch (Exception e) {
+            log.warn("stair rule parse failed, taskId={}, err={}", config.getId(), e.getMessage());
+        }
         if (rule == null || rule.getStages() == null || rule.getStages().isEmpty()) return Collections.emptyList();
         List<Integer> stages = rule.getStages();
 
@@ -41,14 +42,13 @@ public class StairTaskStrategy implements TaskStrategy {
         Set<Integer> granted = new HashSet<>();
         if (instance.getExtraData() != null && !instance.getExtraData().isEmpty()) {
             try {
-                Map<String, Object> ext = JSON.parseObject(instance.getExtraData());
-                Object arr = ext.get("grantedStages");
-                if (arr instanceof Collection) {
-                    for (Object o : (Collection<?>) arr) {
-                        try { granted.add(Integer.parseInt(o.toString())); } catch (Exception ignore) {}
-                    }
+                StairExtraData extra = JSON.parseObject(instance.getExtraData(), StairExtraData.class);
+                if (extra != null && extra.getGrantedStages() != null) {
+                    granted.addAll(extra.getGrantedStages());
                 }
-            } catch (Exception ignore) {}
+            } catch (Exception e) {
+                log.debug("stair extra parse failed, taskId={}, err={}", config.getId(), e.getMessage());
+            }
         }
 
         // 计算本次新达成的阶梯序号
@@ -62,10 +62,9 @@ public class StairTaskStrategy implements TaskStrategy {
             }
         }
 
-        // 更新已发放的阶段到 extraData
-        Map<String, Object> ext = new HashMap<>();
-        ext.put("grantedStages", granted);
-        instance.setExtraData(JSON.toJSONString(ext));
+        StairExtraData newExtra = new StairExtraData();
+        newExtra.setGrantedStages(granted);
+        instance.setExtraData(JSON.toJSONString(newExtra));
 
         return newlyGranted;
     }

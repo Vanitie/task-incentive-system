@@ -10,7 +10,7 @@ import com.whu.graduation.taskincentive.dao.entity.TaskStock;
 import com.whu.graduation.taskincentive.dao.mapper.TaskConfigMapper;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
 import com.whu.graduation.taskincentive.service.TaskStockService;
-import com.whu.graduation.taskincentive.strategy.task.StairRuleConfig;
+import com.whu.graduation.taskincentive.dto.StairRuleConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

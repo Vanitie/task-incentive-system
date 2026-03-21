@@ -1,4 +1,4 @@
-package com.whu.graduation.taskincentive.strategy.task;
+package com.whu.graduation.taskincentive.dto;
 
 import lombok.Data;
 

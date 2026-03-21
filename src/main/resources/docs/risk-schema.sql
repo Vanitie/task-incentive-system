@@ -41,7 +41,8 @@ CREATE TABLE risk_quota (
   limit_value INT NOT NULL COMMENT '限额值',
   used_value INT NOT NULL DEFAULT 0 COMMENT '已使用',
   reset_at DATETIME DEFAULT NULL COMMENT '重置时间',
-  created_at DATETIME NOT NULL COMMENT '创建时间'
+  created_at DATETIME NOT NULL COMMENT '创建时间',
+  UNIQUE KEY uk_scope_period (scope_type, scope_id, period_type)
 ) COMMENT='风控配额';
 
 CREATE TABLE risk_blacklist (

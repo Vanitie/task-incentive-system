@@ -8,14 +8,8 @@ import java.util.List;
 
 public interface TaskStrategy {
     /**
-     * 执行任务逻辑
-     * @param event 用户行为事件
-     * @param taskConfig 任务模板
-     * @param instance 用户任务实例
-     * @return 是否完成任务
-     */
-    /**
-     * 执行任务策略，返回本次事件触发的奖励阶梯序号列表（普通任务为1，阶梯任务为多阶梯，未达成则为空）
+     * 执行任务策略，返回本次事件触发的奖励阶梯序号列表。
+     * 普通任务返回[1]，阶梯任务返回多阶梯序号，未达成则返回空集合。
      */
     List<Integer> execute(UserEvent event, TaskConfig config, UserTaskInstance instance);
 }

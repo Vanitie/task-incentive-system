@@ -43,10 +43,24 @@ public class RiskQuotaController {
         return ApiResponse.success(pr);
     }
 
+    @Operation(summary = "新增配额")
+    @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN')")
+    public ApiResponse<RiskQuota> create(@Valid @RequestBody RiskQuotaRequest request) {
+        return ApiResponse.success(riskQuotaService.create(request));
+    }
+
     @Operation(summary = "更新配额")
     @PutMapping
     @PreAuthorize("hasAnyRole('ADMIN')")
     public ApiResponse<RiskQuota> update(@Valid @RequestBody RiskQuotaRequest request) {
         return ApiResponse.success(riskQuotaService.update(request));
+    }
+
+    @Operation(summary = "删除配额")
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN')")
+    public ApiResponse<Boolean> delete(@PathVariable Long id) {
+        return ApiResponse.success(riskQuotaService.deleteById(id));
     }
 }

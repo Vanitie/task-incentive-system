@@ -10,4 +10,6 @@ import com.whu.graduation.taskincentive.dto.risk.RiskQuotaRequest;
 public interface RiskQuotaService {
     Page<RiskQuota> page(Page<RiskQuota> page);
     RiskQuota update(RiskQuotaRequest request);
+    boolean deleteById(Long id);
+    RiskQuota create(RiskQuotaRequest request);
 }

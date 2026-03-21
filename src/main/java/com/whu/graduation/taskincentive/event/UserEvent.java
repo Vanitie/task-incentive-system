@@ -9,16 +9,16 @@ import java.time.LocalDateTime;
  */
 @Data
 public class UserEvent {
-    private Long userId;
-    private String eventType; // USER_LEARN, USER_SIGN
-    private Integer value;    // 次数/分钟
-    private LocalDateTime time;
-
     /** 请求ID，用于幂等 */
     private String requestId;
 
     /** 事件ID */
     private String eventId;
+
+    private Long userId;
+    private String eventType; // USER_LEARN, USER_SIGN
+    private Integer value;    // 次数/分钟
+    private LocalDateTime time;
 
     /** 设备ID */
     private String deviceId;

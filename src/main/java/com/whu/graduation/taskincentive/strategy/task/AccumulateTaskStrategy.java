@@ -1,14 +1,14 @@
 package com.whu.graduation.taskincentive.strategy.task;
 
-import com.alibaba.fastjson.JSONObject;
+import com.alibaba.fastjson.JSON;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
+import com.whu.graduation.taskincentive.dto.AccumulateRuleConfig;
 import com.whu.graduation.taskincentive.event.UserEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -24,16 +24,19 @@ public class AccumulateTaskStrategy implements TaskStrategy {
         int current = instance.getProgress() + event.getValue();
         instance.setProgress(current);
 
-        // 从 ruleConfig JSON 中读取 targetValue
-        String ruleConfig = taskConfig.getRuleConfig();
-        JSONObject ruleJson = com.alibaba.fastjson.JSON.parseObject(ruleConfig);
-        int target = ruleJson.getIntValue("targetValue");
+        AccumulateRuleConfig rule = null;
+        try {
+            rule = JSON.parseObject(taskConfig.getRuleConfig(), AccumulateRuleConfig.class);
+        } catch (Exception e) {
+            log.warn("accumulate rule parse failed, taskId={}, err={}", taskConfig.getId(), e.getMessage());
+        }
+        int target = rule == null || rule.getTargetValue() == null ? Integer.MAX_VALUE : rule.getTargetValue();
 
         if (current >= target) {
-            instance.setStatus(1); // 完成
-            return List.of(1); // 普通任务只有一个阶梯，达成即为阶梯1
+            instance.setStatus(1);
+            return List.of(1);
         }
 
-        return new ArrayList<>(); // 未达成，返回空列表
+        return new ArrayList<>();
     }
 }

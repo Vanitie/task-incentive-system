@@ -3,6 +3,7 @@ package com.whu.graduation.taskincentive.engine;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.whu.graduation.taskincentive.common.enums.RewardType;
 import com.whu.graduation.taskincentive.common.enums.StockType;
+import com.whu.graduation.taskincentive.common.enums.UserTaskStatus;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
 import com.whu.graduation.taskincentive.dto.Reward;
@@ -21,6 +22,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
+import java.time.ZoneId;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -135,14 +138,18 @@ public class TaskEngine {
                 log.warn("taskConfig not found, taskId={}", taskId);
                 continue;
             }
+            if (!isTaskActive(taskConfig, event.getTime())) {
+                log.debug("task not active, taskId={}, userId={}", taskId, event.getUserId());
+                continue;
+            }
             TaskStrategy strategy = taskStrategyMap.get(taskConfig.getTaskType());
             if (strategy == null) {
                 log.warn("no strategy for taskType={}, taskId={}", taskConfig.getTaskType(), taskId);
                 continue;
             }
             UserTaskInstance instance = instanceByTaskId.get(taskId);
-            if (instance == null) {
-                log.debug("user {} accepted task {} but instance not found, skip", event.getUserId(), taskId);
+            if (!isInstanceValid(instance, event.getUserId(), taskId)) {
+                log.debug("invalid user task instance, userId={}, taskId={}", event.getUserId(), taskId);
                 continue;
             }
             // 执行策略，返回本次事件触发的奖励阶梯序号列表
@@ -206,5 +213,30 @@ public class TaskEngine {
             }
             instanceService.updateAndPublish(instance);
         }
+    }
+
+    private boolean isTaskActive(TaskConfig taskConfig, java.time.LocalDateTime eventTime) {
+        if (taskConfig.getStatus() == null || taskConfig.getStatus() != 1) {
+            return false;
+        }
+        Date now = eventTime == null
+                ? new Date()
+                : Date.from(eventTime.atZone(ZoneId.systemDefault()).toInstant());
+        if (taskConfig.getStartTime() != null && now.before(taskConfig.getStartTime())) {
+            return false;
+        }
+        if (taskConfig.getEndTime() != null && now.after(taskConfig.getEndTime())) {
+            return false;
+        }
+        return true;
+    }
+
+    private boolean isInstanceValid(UserTaskInstance instance, Long userId, Long taskId) {
+        if (instance == null) return false;
+        if (instance.getUserId() == null || !instance.getUserId().equals(userId)) return false;
+        if (instance.getTaskId() == null || !instance.getTaskId().equals(taskId)) return false;
+        UserTaskStatus status = UserTaskStatus.fromCode(instance.getStatus());
+        if (status == null) return false;
+        return status != UserTaskStatus.COMPLETED && status != UserTaskStatus.CANCELLED;
     }
 }
