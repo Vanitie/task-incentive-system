@@ -43,9 +43,11 @@ public class RiskQuotaServiceImpl implements RiskQuotaService {
         if (quota == null) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "配额不存在");
         }
-        ensureUnique(request.getScopeType(), request.getScopeId(), request.getPeriodType(), request.getId());
+        ensureUnique(request.getScopeType(), request.getScopeId(), request.getResourceType(), request.getResourceId(), request.getPeriodType(), request.getId());
         quota.setScopeType(request.getScopeType());
         quota.setScopeId(request.getScopeId());
+        quota.setResourceType(request.getResourceType());
+        quota.setResourceId(request.getResourceId());
         quota.setPeriodType(request.getPeriodType());
         quota.setLimitValue(request.getLimitValue());
         riskQuotaMapper.updateById(quota);
@@ -55,11 +57,13 @@ public class RiskQuotaServiceImpl implements RiskQuotaService {
 
     @Override
     public RiskQuota create(RiskQuotaRequest request) {
-        ensureUnique(request.getScopeType(), request.getScopeId(), request.getPeriodType(), null);
+        ensureUnique(request.getScopeType(), request.getScopeId(), request.getResourceType(), request.getResourceId(), request.getPeriodType(), null);
         RiskQuota quota = RiskQuota.builder()
                 .id(IdWorker.getId())
                 .scopeType(request.getScopeType())
                 .scopeId(request.getScopeId())
+                .resourceType(request.getResourceType())
+                .resourceId(request.getResourceId())
                 .periodType(request.getPeriodType())
                 .limitValue(request.getLimitValue())
                 .usedValue(0)
@@ -81,15 +85,17 @@ public class RiskQuotaServiceImpl implements RiskQuotaService {
         return rows > 0;
     }
 
-    private void ensureUnique(String scopeType, String scopeId, String periodType, Long excludeId) {
+    private void ensureUnique(String scopeType, String scopeId, String resourceType, String resourceId, String periodType, Long excludeId) {
         QueryWrapper<RiskQuota> wrapper = new QueryWrapper<RiskQuota>()
                 .eq("scope_type", scopeType)
                 .eq("scope_id", scopeId)
+                .eq("resource_type", resourceType)
+                .eq("resource_id", resourceId)
                 .eq("period_type", periodType);
         RiskQuota existing = riskQuotaMapper.selectOne(wrapper);
         if (existing == null) return;
         if (excludeId == null || !excludeId.equals(existing.getId())) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "同一资源配额已存在");
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "同一范围与资源配额已存在");
         }
     }
 

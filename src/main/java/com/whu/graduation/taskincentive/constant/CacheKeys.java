@@ -25,6 +25,9 @@ public final class CacheKeys {
     // DLQ / Error topic（可在配置中覆盖）
     public static final String DEFAULT_DLQ_TOPIC = "dlq-topic";
 
+    // 风控决策落库主题
+    public static final String RISK_DECISION_PERSIST_TOPIC = "risk-decision-persist-topic";
+
     // 其它常量
     public static final long DEFAULT_DEDUP_TTL_DAYS = 7L;
 }

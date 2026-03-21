@@ -40,6 +40,12 @@ public class RiskDecisionRequest {
     @Schema(description = "金额或数量")
     private Integer amount;
 
+    @Schema(description = "资源类型（POINT/BADGE/PHYSICAL/ALL）")
+    private String resourceType;
+
+    @Schema(description = "资源ID（具体奖品/徽章/任务奖励ID）")
+    private String resourceId;
+
     @Schema(description = "设备ID")
     private String deviceId;
 

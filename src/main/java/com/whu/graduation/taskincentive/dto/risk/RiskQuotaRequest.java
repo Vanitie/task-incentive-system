@@ -18,6 +18,8 @@ public class RiskQuotaRequest {
     private Long id;
     private String scopeType;
     private String scopeId;
+    private String resourceType;
+    private String resourceId;
     private String periodType;
     private Integer limitValue;
 }

@@ -32,6 +32,14 @@ public class RiskQuota {
      */
     private String scopeId;
     /**
+     * 资源类型（POINT/BADGE/PHYSICAL/ALL 等）
+     */
+    private String resourceType;
+    /**
+     * 资源ID（具体奖品/徽章/任务奖励ID；无区分时用 ALL）
+     */
+    private String resourceId;
+    /**
      * 时间周期类型（minute/hour/day）
      */
     private String periodType;

@@ -72,9 +72,11 @@ public class RiskCacheStore {
         return targetType == null ? "" : targetType.toUpperCase();
     }
 
-    public static String quotaKey(String scopeType, String scopeId, String periodType) {
+    public static String quotaKey(String scopeType, String scopeId, String resourceType, String resourceId, String periodType) {
         return (scopeType == null ? "" : scopeType.toUpperCase()) + ":" +
                 (scopeId == null ? "" : scopeId) + ":" +
+                (resourceType == null ? "" : resourceType.toUpperCase()) + ":" +
+                (resourceId == null ? "" : resourceId) + ":" +
                 (periodType == null ? "" : periodType.toUpperCase());
     }
 
@@ -94,7 +96,7 @@ public class RiskCacheStore {
         Map<String, RiskQuota> map = new ConcurrentHashMap<>();
         if (list == null) return map;
         for (RiskQuota q : list) {
-            String key = quotaKey(q.getScopeType(), q.getScopeId(), q.getPeriodType());
+            String key = quotaKey(q.getScopeType(), q.getScopeId(), q.getResourceType(), q.getResourceId(), q.getPeriodType());
             map.put(key, q);
         }
         return map;

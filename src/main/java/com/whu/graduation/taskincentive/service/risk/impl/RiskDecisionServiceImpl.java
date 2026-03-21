@@ -6,6 +6,7 @@ import com.whu.graduation.taskincentive.common.enums.RiskDecisionAction;
 import com.whu.graduation.taskincentive.constant.RiskConstants;
 import com.whu.graduation.taskincentive.dao.entity.RiskDecisionLog;
 import com.whu.graduation.taskincentive.dao.entity.RewardFreezeRecord;
+import com.whu.graduation.taskincentive.dao.entity.RiskQuota;
 import com.whu.graduation.taskincentive.dto.risk.RiskDecisionRequest;
 import com.whu.graduation.taskincentive.dto.risk.RiskDecisionResponse;
 import com.whu.graduation.taskincentive.dto.risk.RiskHitRule;
@@ -13,8 +14,8 @@ import com.whu.graduation.taskincentive.service.risk.RiskCacheStore;
 import com.whu.graduation.taskincentive.service.risk.RiskDecisionEngine;
 import com.whu.graduation.taskincentive.service.risk.RiskDecisionService;
 import com.whu.graduation.taskincentive.service.risk.RiskMetricStore;
-import com.whu.graduation.taskincentive.dao.mapper.RiskDecisionLogMapper;
-import com.whu.graduation.taskincentive.dao.mapper.RewardFreezeRecordMapper;
+import com.whu.graduation.taskincentive.mq.RiskDecisionPersistMessage;
+import com.whu.graduation.taskincentive.mq.RiskDecisionPersistProducer;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -36,23 +37,20 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
     private final RiskDecisionEngine decisionEngine;
     private final RiskMetricStore metricStore;
     private final RiskCacheStore cacheStore;
-    private final RiskDecisionLogMapper decisionLogMapper;
     private final RedisTemplate<String, String> redisTemplate;
-    private final RewardFreezeRecordMapper rewardFreezeRecordMapper;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final RiskDecisionPersistProducer persistProducer;
 
     public RiskDecisionServiceImpl(RiskDecisionEngine decisionEngine,
                                    RiskMetricStore metricStore,
                                    RiskCacheStore cacheStore,
-                                   RiskDecisionLogMapper decisionLogMapper,
                                    RedisTemplate<String, String> redisTemplate,
-                                   RewardFreezeRecordMapper rewardFreezeRecordMapper) {
+                                   RiskDecisionPersistProducer persistProducer) {
         this.decisionEngine = decisionEngine;
         this.metricStore = metricStore;
         this.cacheStore = cacheStore;
-        this.decisionLogMapper = decisionLogMapper;
         this.redisTemplate = redisTemplate;
-        this.rewardFreezeRecordMapper = rewardFreezeRecordMapper;
+        this.persistProducer = persistProducer;
     }
 
     @Override
@@ -137,27 +135,28 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
                 .latencyMs(latency)
                 .createdAt(new Date())
                 .build();
-        try {
-            decisionLogMapper.insert(log);
-        } catch (Exception ignored) {
-        }
-
+        RewardFreezeRecord freeze = null;
         if (action == RiskDecisionAction.FREEZE) {
-            try {
-                RewardFreezeRecord freeze = RewardFreezeRecord.builder()
-                        .id(IdWorker.getId())
-                        .rewardId(null)
-                        .userId(request.getUserId())
-                        .taskId(request.getTaskId())
-                        .freezeReason(reason)
-                        .status(0)
-                        .unfreezeAt(null)
-                        .createdAt(new Date())
-                        .updatedAt(new Date())
-                        .build();
-                rewardFreezeRecordMapper.insert(freeze);
-            } catch (Exception ignored) {
-            }
+            freeze = RewardFreezeRecord.builder()
+                    .id(IdWorker.getId())
+                    .rewardId(null)
+                    .userId(request.getUserId())
+                    .taskId(request.getTaskId())
+                    .freezeReason(reason)
+                    .status(0)
+                    .unfreezeAt(null)
+                    .createdAt(new Date())
+                    .updatedAt(new Date())
+                    .build();
+        }
+        try {
+            RiskDecisionPersistMessage msg = RiskDecisionPersistMessage.builder()
+                    .decisionLog(log)
+                    .freezeRecord(freeze)
+                    .build();
+            String userKey = request.getUserId() == null ? "0" : String.valueOf(request.getUserId());
+            persistProducer.send(userKey, msg);
+        } catch (Exception ignored) {
         }
         return response;
     }
@@ -212,23 +211,25 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
     private boolean checkQuota(RiskDecisionRequest request) {
         if (cacheStore.getQuotas() == null || cacheStore.getQuotas().isEmpty()) return true;
         LocalDateTime time = request.getEventTime() == null ? LocalDateTime.now() : request.getEventTime();
+        String resourceType = normalizeResourceType(request.getResourceType());
+        String resourceId = normalizeResourceId(request.getResourceId());
 
         // 用户级
         if (request.getUserId() != null) {
-            if (!consumeQuota("USER", String.valueOf(request.getUserId()), "DAY", time)) return false;
+            if (!consumeQuota("USER", String.valueOf(request.getUserId()), resourceType, resourceId, "DAY", time)) return false;
         }
         // 任务级
         if (request.getTaskId() != null) {
-            if (!consumeQuota("TASK", String.valueOf(request.getTaskId()), "DAY", time)) return false;
+            if (!consumeQuota("TASK", String.valueOf(request.getTaskId()), resourceType, resourceId, "DAY", time)) return false;
         }
         // 全局级
-        if (!consumeQuota("GLOBAL", "ALL", "DAY", time)) return false;
+        if (!consumeQuota("GLOBAL", "ALL", resourceType, resourceId, "DAY", time)) return false;
         return true;
     }
 
-    private boolean consumeQuota(String scopeType, String scopeId, String periodType, LocalDateTime time) {
-        String key = RiskCacheStore.quotaKey(scopeType, scopeId, periodType);
-        com.whu.graduation.taskincentive.dao.entity.RiskQuota quota = cacheStore.getQuotas().get(key);
+    private boolean consumeQuota(String scopeType, String scopeId, String resourceType, String resourceId, String periodType, LocalDateTime time) {
+        String key = RiskCacheStore.quotaKey(scopeType, scopeId, resourceType, resourceId, periodType);
+        RiskQuota quota = cacheStore.getQuotas().get(key);
         if (quota == null || quota.getLimitValue() == null) return true;
 
         String bucket = bucketKey(periodType, time);
@@ -275,6 +276,8 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
         ctx.put("taskId", request.getTaskId());
         ctx.put("eventType", request.getEventType());
         ctx.put("amount", request.getAmount() == null ? 1 : request.getAmount());
+        ctx.put("resourceType", normalizeResourceType(request.getResourceType()));
+        ctx.put("resourceId", normalizeResourceId(request.getResourceId()));
         ctx.put("count_1m", metricStore.getCount1m(request.getUserId(), request.getTaskId(), time));
         ctx.put("count_1h", metricStore.getCount1h(request.getUserId(), request.getTaskId(), time));
         ctx.put("amount_1d", metricStore.getAmount1d(request.getUserId(), request.getTaskId(), time));
@@ -286,6 +289,14 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
             ctx.putAll(request.getExt());
         }
         return ctx;
+    }
+
+    private String normalizeResourceType(String resourceType) {
+        return (resourceType == null || resourceType.isEmpty()) ? "ALL" : resourceType;
+    }
+
+    private String normalizeResourceId(String resourceId) {
+        return (resourceId == null || resourceId.isEmpty()) ? "ALL" : resourceId;
     }
 
     private RiskDecisionAction parseAction(String decision) {
