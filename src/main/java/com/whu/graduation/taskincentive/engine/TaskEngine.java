@@ -164,6 +164,8 @@ public class TaskEngine {
                         .eventType(event.getEventType())
                         .eventTime(event.getTime())
                         .amount(taskConfig.getRewardValue())
+                        .resourceType(toRiskResourceType(taskConfig.getRewardType()))
+                        .resourceId(String.valueOf(taskId))
                         .deviceId(event.getDeviceId())
                         .ip(event.getIp())
                         .channel(event.getChannel())
@@ -238,5 +240,16 @@ public class TaskEngine {
         UserTaskStatus status = UserTaskStatus.fromCode(instance.getStatus());
         if (status == null) return false;
         return status != UserTaskStatus.COMPLETED && status != UserTaskStatus.CANCELLED;
+    }
+
+    private String toRiskResourceType(String rewardType) {
+        if (rewardType == null || rewardType.isEmpty()) {
+            return "ALL";
+        }
+        String normalized = rewardType.toUpperCase();
+        if (normalized.startsWith("REWARD_")) {
+            normalized = normalized.substring("REWARD_".length());
+        }
+        return normalized;
     }
 }

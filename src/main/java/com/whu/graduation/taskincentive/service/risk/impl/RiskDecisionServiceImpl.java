@@ -79,7 +79,8 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
             }
 
             // 4. 配额判断（用户/任务/全局）
-            if (!checkQuota(request)) {
+            Map<String, RiskQuota> quotaSnapshot = snapshotQuotas();
+            if (!checkQuota(request, quotaSnapshot)) {
                 return buildAndLog(request, traceId, RiskDecisionAction.REJECT, RiskConstants.REASON_QUOTA_EXCEEDED,
                         Collections.emptyList(), start, 70, null);
             }
@@ -208,29 +209,73 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
         return false;
     }
 
-    private boolean checkQuota(RiskDecisionRequest request) {
-        if (cacheStore.getQuotas() == null || cacheStore.getQuotas().isEmpty()) return true;
+    private Map<String, RiskQuota> snapshotQuotas() {
+        Map<String, RiskQuota> current = cacheStore.getQuotas();
+        if (current == null || current.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return new HashMap<>(current);
+    }
+
+    private boolean checkQuota(RiskDecisionRequest request, Map<String, RiskQuota> quotas) {
+        if (quotas == null || quotas.isEmpty()) return true;
         LocalDateTime time = request.getEventTime() == null ? LocalDateTime.now() : request.getEventTime();
         String resourceType = normalizeResourceType(request.getResourceType());
         String resourceId = normalizeResourceId(request.getResourceId());
 
-        // 用户级
-        if (request.getUserId() != null) {
-            if (!consumeQuota("USER", String.valueOf(request.getUserId()), resourceType, resourceId, "DAY", time)) return false;
+        for (RiskQuota quota : quotas.values()) {
+            if (!isQuotaApplicable(quota, request, resourceType, resourceId)) {
+                continue;
+            }
+            if (!consumeQuota(quota, time)) {
+                return false;
+            }
         }
-        // 任务级
-        if (request.getTaskId() != null) {
-            if (!consumeQuota("TASK", String.valueOf(request.getTaskId()), resourceType, resourceId, "DAY", time)) return false;
-        }
-        // 全局级
-        if (!consumeQuota("GLOBAL", "ALL", resourceType, resourceId, "DAY", time)) return false;
         return true;
     }
 
-    private boolean consumeQuota(String scopeType, String scopeId, String resourceType, String resourceId, String periodType, LocalDateTime time) {
+    private boolean isQuotaApplicable(RiskQuota quota, RiskDecisionRequest request,
+                                      String resourceType, String resourceId) {
+        if (quota == null || quota.getLimitValue() == null) return false;
+
+        String quotaResourceType = normalizeResourceType(quota.getResourceType());
+        String quotaResourceId = normalizeResourceId(quota.getResourceId());
+        if (!"ALL".equalsIgnoreCase(quotaResourceType)
+                && !quotaResourceType.equalsIgnoreCase(resourceType)) {
+            return false;
+        }
+        if (!"ALL".equalsIgnoreCase(quotaResourceId)
+                && !quotaResourceId.equalsIgnoreCase(resourceId)) {
+            return false;
+        }
+
+        String scopeType = quota.getScopeType() == null ? "" : quota.getScopeType().toUpperCase();
+        String scopeId = quota.getScopeId() == null ? "ALL" : quota.getScopeId();
+        if ("USER".equals(scopeType)) {
+            if (request.getUserId() == null) return false;
+            return "ALL".equalsIgnoreCase(scopeId)
+                    || scopeId.equals(String.valueOf(request.getUserId()));
+        }
+        if ("TASK".equals(scopeType)) {
+            if (request.getTaskId() == null) return false;
+            return "ALL".equalsIgnoreCase(scopeId)
+                    || scopeId.equals(String.valueOf(request.getTaskId()));
+        }
+        if ("GLOBAL".equals(scopeType)) {
+            return "ALL".equalsIgnoreCase(scopeId);
+        }
+        return false;
+    }
+
+    private boolean consumeQuota(RiskQuota quota, LocalDateTime time) {
+        String scopeType = quota.getScopeType() == null ? "" : quota.getScopeType().toUpperCase();
+        String scopeId = quota.getScopeId() == null ? "ALL" : quota.getScopeId();
+        String resourceType = normalizeResourceType(quota.getResourceType());
+        String resourceId = normalizeResourceId(quota.getResourceId());
+        String periodType = quota.getPeriodType() == null || quota.getPeriodType().isEmpty()
+                ? "DAY" : quota.getPeriodType().toUpperCase();
+
         String key = RiskCacheStore.quotaKey(scopeType, scopeId, resourceType, resourceId, periodType);
-        RiskQuota quota = cacheStore.getQuotas().get(key);
-        if (quota == null || quota.getLimitValue() == null) return true;
 
         String bucket = bucketKey(periodType, time);
         String redisKey = "risk:quota:" + key + ":" + bucket;

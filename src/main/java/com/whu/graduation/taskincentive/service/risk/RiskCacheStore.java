@@ -4,6 +4,7 @@ import com.whu.graduation.taskincentive.dao.entity.RiskBlacklist;
 import com.whu.graduation.taskincentive.dao.entity.RiskQuota;
 import com.whu.graduation.taskincentive.dao.entity.RiskRule;
 import com.whu.graduation.taskincentive.dao.entity.RiskWhitelist;
+import lombok.Data;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -17,6 +18,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * 风控缓存仓库（内存版，MVP）
  */
 @Component
+@Data
 public class RiskCacheStore {
 
     private final List<RiskRule> activeRules = new CopyOnWriteArrayList<>();
@@ -62,10 +64,6 @@ public class RiskCacheStore {
         if (data != null && !data.isEmpty()) {
             quotas.putAll(data);
         }
-    }
-
-    public Map<String, RiskQuota> getQuotas() {
-        return quotas;
     }
 
     public static String listKey(String targetType) {
