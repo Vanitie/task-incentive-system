@@ -10,7 +10,9 @@ import com.whu.graduation.taskincentive.common.enums.UserTaskStatus;
 import com.whu.graduation.taskincentive.common.error.BusinessException;
 import com.whu.graduation.taskincentive.common.error.ErrorCode;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
+import com.whu.graduation.taskincentive.dao.entity.User;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
+import com.whu.graduation.taskincentive.dao.mapper.UserMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserTaskInstanceMapper;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
 import com.whu.graduation.taskincentive.service.UserTaskInstanceService;
@@ -45,6 +47,9 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
     @Autowired
     private TaskConfigService taskConfigService;
 
+    @Autowired
+    private UserMapper userMapper;
+
     private static final String TASK_TOPIC = "task-persist-topic";
 
     private String buildUserTaskKey(Long userId, Long taskId) {
@@ -53,6 +58,32 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
 
     private String buildUserAcceptedSetKey(Long userId) {
         return com.whu.graduation.taskincentive.constant.CacheKeys.USER_ACCEPTED_PREFIX + userId;
+    }
+
+    private void fillDisplayNames(UserTaskInstance instance, Long userId, Long taskId) {
+        if (instance == null) {
+            return;
+        }
+        try {
+            if (instance.getUserName() == null || instance.getUserName().isEmpty()) {
+                User user = userMapper.selectById(userId);
+                if (user != null) {
+                    instance.setUserName(user.getUsername());
+                }
+            }
+        } catch (Exception e) {
+            log.debug("fill userName failed, userId={}, err={}", userId, e.getMessage());
+        }
+        try {
+            if (instance.getTaskName() == null || instance.getTaskName().isEmpty()) {
+                TaskConfig task = taskConfigService.getTaskConfig(taskId);
+                if (task != null) {
+                    instance.setTaskName(task.getTaskName());
+                }
+            }
+        } catch (Exception e) {
+            log.debug("fill taskName failed, taskId={}, err={}", taskId, e.getMessage());
+        }
     }
 
     @Override
@@ -203,6 +234,7 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
         instance.setId(IdWorker.getId());
         instance.setUserId(userId);
         instance.setTaskId(taskId);
+        fillDisplayNames(instance, userId, taskId);
         instance.setProgress(0);
         instance.setStatus(0);
         instance.setVersion(0);
@@ -351,6 +383,7 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
             }
             // 否则把状态更新为已接取并写缓存（在事务提交后执行）
             instance.setStatus(UserTaskStatus.ACCEPTED.getCode());
+            fillDisplayNames(instance, userId, taskId);
             instance.setUpdateTime(new Date());
             baseMapper.updateById(instance);
             if (TransactionSynchronizationManager.isSynchronizationActive()) {
@@ -375,6 +408,7 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
         instance.setId(IdWorker.getId());
         instance.setUserId(userId);
         instance.setTaskId(taskId);
+        fillDisplayNames(instance, userId, taskId);
         instance.setProgress(0);
         instance.setStatus(UserTaskStatus.ACCEPTED.getCode());
         instance.setVersion(0);
@@ -416,6 +450,111 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
         if (taskId != null) wrapper.eq("task_id", taskId);
         if (status != null) wrapper.eq("status", status);
         wrapper.orderByDesc("update_time");
-        return this.baseMapper.selectPage(page, wrapper);
+        Page<UserTaskInstance> result = this.baseMapper.selectPage(page, wrapper);
+        List<UserTaskInstance> records = result.getRecords();
+        if (records == null || records.isEmpty()) {
+            return result;
+        }
+
+        Set<Long> taskIds = new HashSet<>();
+        for (UserTaskInstance instance : records) {
+            if (instance != null && instance.getTaskId() != null) {
+                taskIds.add(instance.getTaskId());
+            }
+        }
+        Map<Long, TaskConfig> configMap = taskIds.isEmpty()
+                ? Collections.emptyMap()
+                : taskConfigService.getTaskConfigsByIds(taskIds);
+
+        for (UserTaskInstance instance : records) {
+            if (instance == null) {
+                continue;
+            }
+            TaskConfig config = configMap.get(instance.getTaskId());
+            int rawProgress = instance.getProgress() == null ? 0 : Math.max(0, instance.getProgress());
+            int target = resolveTarget(config);
+
+            // 展示层统一状态语义：1接取、2进行中、3已完成、4已取消
+            int displayStatus = normalizeStatusForDisplay(instance.getStatus(), rawProgress, target);
+            instance.setStatus(displayStatus);
+
+            int percent = calcProgressPercent(rawProgress, target, displayStatus);
+            instance.setProgress(percent);
+        }
+        return result;
+    }
+
+    private int calcProgressPercent(int progress, int target, int displayStatus) {
+        // 完成态展示100%
+        if (displayStatus == UserTaskStatus.COMPLETED.getCode()) {
+            return 100;
+        }
+        if (target <= 0) {
+            return progress > 0 ? 100 : 0;
+        }
+        double ratio = (progress * 100.0) / target;
+        return Math.max(0, Math.min(100, (int) Math.floor(ratio)));
+    }
+
+    private int normalizeStatusForDisplay(Integer status, int progress, int target) {
+        int current = status == null ? UserTaskStatus.ACCEPTED.getCode() : status;
+
+        // 取消态保持不变
+        if (current == UserTaskStatus.CANCELLED.getCode()) {
+            return UserTaskStatus.CANCELLED.getCode();
+        }
+
+        boolean reachedTarget = target > 0 ? progress >= target : progress > 0;
+        if (reachedTarget) {
+            return UserTaskStatus.COMPLETED.getCode();
+        }
+
+        // 按前端约定语义：有进度则进行中，否则接取
+        return progress > 0 ? UserTaskStatus.IN_PROGRESS.getCode() : UserTaskStatus.ACCEPTED.getCode();
+    }
+
+    private int resolveTarget(TaskConfig config) {
+        if (config == null) {
+            return 0;
+        }
+        String rule = config.getRuleConfig();
+        if (rule == null || rule.isEmpty()) {
+            return 0;
+        }
+        try {
+            JSONObject json = JSON.parseObject(rule);
+            if (json == null) {
+                return 0;
+            }
+
+            String taskType = config.getTaskType();
+            if ("STAIR".equalsIgnoreCase(taskType)) {
+                List<Integer> stages = json.getJSONArray("stages") == null
+                        ? Collections.emptyList()
+                        : json.getJSONArray("stages").toJavaList(Integer.class);
+                int maxStage = 0;
+                for (Integer stage : stages) {
+                    if (stage != null && stage > maxStage) {
+                        maxStage = stage;
+                    }
+                }
+                return maxStage;
+            }
+            if ("CONTINUOUS".equalsIgnoreCase(taskType)) {
+                Integer days = json.getInteger("targetDays");
+                return days == null ? 0 : days;
+            }
+            Integer targetValue = json.getInteger("targetValue");
+            if (targetValue != null) {
+                return targetValue;
+            }
+
+            // 兼容历史造数/旧配置中的 target 字段
+            Integer target = json.getInteger("target");
+            return target == null ? 0 : target;
+        } catch (Exception e) {
+            log.debug("resolve target failed, taskId={}, err={}", config.getId(), e.getMessage());
+            return 0;
+        }
     }
 }

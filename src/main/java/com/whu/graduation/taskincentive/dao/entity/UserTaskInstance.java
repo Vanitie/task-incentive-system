@@ -31,9 +31,19 @@ public class UserTaskInstance {
     private Long userId;
 
     /**
+     * 用户名（冗余展示字段）
+     */
+    private String userName;
+
+    /**
      * 任务ID
      */
     private Long taskId;
+
+    /**
+     * 任务名（冗余展示字段）
+     */
+    private String taskName;
 
     /**
      * 当前完成进度
@@ -41,7 +51,7 @@ public class UserTaskInstance {
     private Integer progress;
 
     /**
-     * 任务完成状态：未完成 STATUS_INCOMPLETE / 已完成 STATUS_COMPLETED
+        * 任务状态：1-已领取(ACCEPTED) / 2-进行中(IN_PROGRESS) / 3-已完成(COMPLETED) / 4-已取消(CANCELLED)
      */
     private Integer status;
 

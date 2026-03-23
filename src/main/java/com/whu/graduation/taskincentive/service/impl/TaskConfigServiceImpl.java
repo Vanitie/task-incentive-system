@@ -116,7 +116,7 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
         // 打点：记录创建时间
         stringRedisTemplate.opsForValue().set(TASK_CONFIG_CREATE_TIME_PREFIX + taskConfig.getId(), String.valueOf(System.currentTimeMillis()));
         // 根据库存类型维护库存表
-        if ("STOCK_TYPE_LIMITED".equalsIgnoreCase(taskConfig.getStockType())) {
+        if ("LIMITED".equalsIgnoreCase(taskConfig.getStockType())) {
             createTaskStock(taskConfig);
         } else {
             // 非限量任务清理库存表
@@ -139,7 +139,7 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
         // 打点：记录更新时间
         stringRedisTemplate.opsForValue().set(TASK_CONFIG_CREATE_TIME_PREFIX + taskConfig.getId(), String.valueOf(System.currentTimeMillis()));
         // 根据库存类型维护库存表
-        if ("STOCK_TYPE_LIMITED".equalsIgnoreCase(taskConfig.getStockType())) {
+        if ("LIMITED".equalsIgnoreCase(taskConfig.getStockType())) {
             TaskStock stock = new TaskStock();
             stock.setTaskId(taskConfig.getId());
             stock.setAvailableStock(taskConfig.getTotalStock() != null ? taskConfig.getTotalStock() : 0);

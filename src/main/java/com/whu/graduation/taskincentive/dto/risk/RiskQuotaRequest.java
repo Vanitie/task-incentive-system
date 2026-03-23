@@ -16,6 +16,7 @@ import lombok.NoArgsConstructor;
 @Schema(description = "配额更新请求")
 public class RiskQuotaRequest {
     private Long id;
+    private String quotaName;
     private String scopeType;
     private String scopeId;
     private String resourceType;

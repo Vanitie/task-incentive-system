@@ -3,17 +3,17 @@
 
  Source Server         : localhost_3306
  Source Server Type    : MySQL
- Source Server Version : 80036 (8.0.36)
+ Source Server Version : 80045 (8.0.45)
  Source Host           : localhost:3306
  Source Schema         : task_incentive
 
  Target Server Type    : MySQL
- Target Server Version : 80036 (8.0.36)
+ Target Server Version : 80045 (8.0.45)
  File Encoding         : 65001
 
- Date: 22/03/2026 14:39:56
+ Date: 22/03/2026 21:21:36
 */
-USE task_incentive;
+
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
@@ -31,7 +31,7 @@ CREATE TABLE `badge`  (
   `update_time` datetime NOT NULL COMMENT '更新时间',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `idx_code`(`code` ASC) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '徽章表，存储徽章静态信息' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '徽章表，存储徽章静态信息' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for reward_freeze_record
@@ -48,7 +48,7 @@ CREATE TABLE `reward_freeze_record`  (
   `created_at` datetime NOT NULL COMMENT '创建时间',
   `updated_at` datetime NOT NULL COMMENT '更新时间',
   PRIMARY KEY (`id`) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '奖励冻结记录' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '奖励冻结记录' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for risk_blacklist
@@ -63,7 +63,7 @@ CREATE TABLE `risk_blacklist`  (
   `status` tinyint NOT NULL COMMENT '状态：0禁用/1启用',
   `created_at` datetime NOT NULL COMMENT '创建时间',
   PRIMARY KEY (`id`) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '黑名单' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '黑名单' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for risk_decision_log
@@ -83,7 +83,7 @@ CREATE TABLE `risk_decision_log`  (
   `created_at` datetime NOT NULL COMMENT '创建时间',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `uk_request_id`(`request_id` ASC) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '风控决策日志' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '风控决策日志' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for risk_quota
@@ -98,8 +98,10 @@ CREATE TABLE `risk_quota`  (
   `used_value` int NOT NULL DEFAULT 0 COMMENT '已使用',
   `reset_at` datetime NULL DEFAULT NULL COMMENT '重置时间',
   `created_at` datetime NOT NULL COMMENT '创建时间',
+  `resource_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'ALL' COMMENT '资源类型（POINT/BADGE/PHYSICAL/ALL 等)',
+  `resource_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'ALL' COMMENT '资源ID（具体奖品/徽章ID；无区分时用 ALL）',
   PRIMARY KEY (`id`) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '风控配额' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '风控配额' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for risk_rule
@@ -122,7 +124,7 @@ CREATE TABLE `risk_rule`  (
   `created_at` datetime NOT NULL COMMENT '创建时间',
   `updated_at` datetime NOT NULL COMMENT '更新时间',
   PRIMARY KEY (`id`) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '风控规则' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '风控规则' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for risk_whitelist
@@ -137,7 +139,7 @@ CREATE TABLE `risk_whitelist`  (
   `status` tinyint NOT NULL COMMENT '状态：0禁用/1启用',
   `created_at` datetime NOT NULL COMMENT '创建时间',
   PRIMARY KEY (`id`) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '白名单' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '白名单' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for task_config
@@ -162,7 +164,7 @@ CREATE TABLE `task_config`  (
   INDEX `idx_status`(`status` ASC) USING BTREE,
   INDEX `idx_task_type`(`task_type` ASC) USING BTREE,
   INDEX `idx_trigger_event`(`trigger_event` ASC) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '任务模板表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '任务模板表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for task_stock
@@ -175,8 +177,8 @@ CREATE TABLE `task_stock`  (
   `version` int NOT NULL COMMENT '乐观锁版本号，用于高并发扣减',
   `create_time` datetime NOT NULL COMMENT '创建时间',
   `update_time` datetime NOT NULL COMMENT '更新时间',
-  PRIMARY KEY (`task_id`) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '任务库存表' ROW_FORMAT = Dynamic;
+  PRIMARY KEY (`task_id`, `stage_index`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '任务库存表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for user
@@ -192,7 +194,7 @@ CREATE TABLE `user`  (
   `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '用户更新时间',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `idx_username`(`username` ASC) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '用户表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '用户表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for user_action_log
@@ -207,7 +209,7 @@ CREATE TABLE `user_action_log`  (
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_user_time`(`user_id` ASC, `create_time` ASC) USING BTREE,
   INDEX `idx_action_type`(`action_type` ASC) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户行为日志表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户行为日志表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for user_badge
@@ -221,7 +223,7 @@ CREATE TABLE `user_badge`  (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `idx_user_badge`(`user_id` ASC, `badge_id` ASC) USING BTREE,
   INDEX `idx_badge_id`(`badge_id` ASC) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户徽章关联表，记录用户获得的徽章' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户徽章关联表，记录用户获得的徽章' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for user_reward_record
@@ -238,7 +240,7 @@ CREATE TABLE `user_reward_record`  (
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_user_id`(`user_id` ASC) USING BTREE,
   INDEX `idx_task_id`(`task_id` ASC) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户奖励记录表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户奖励记录表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for user_task_instance
@@ -258,6 +260,6 @@ CREATE TABLE `user_task_instance`  (
   UNIQUE INDEX `idx_user_task`(`user_id` ASC, `task_id` ASC) USING BTREE,
   INDEX `idx_status`(`status` ASC) USING BTREE,
   INDEX `idx_task_id`(`task_id` ASC) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户任务实例表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户任务实例表' ROW_FORMAT = DYNAMIC;
 
 SET FOREIGN_KEY_CHECKS = 1;

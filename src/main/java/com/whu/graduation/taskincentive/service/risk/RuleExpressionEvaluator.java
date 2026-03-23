@@ -14,6 +14,7 @@ import org.springframework.expression.spel.support.StandardEvaluationContext;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
  * 规则表达式解析器（基于 SpEL）
@@ -92,11 +93,15 @@ public class RuleExpressionEvaluator {
 
     private List<String> findMissingSharpVariables(String expression) {
         List<String> missing = new ArrayList<>();
+        Set<String> missingSet = new LinkedHashSet<>();
         for (String var : KNOWN_VARIABLES) {
-            if (expression.contains(var) && !expression.contains("#" + var)) {
-                missing.add(var);
+            // 仅匹配完整变量名
+            Pattern bareVarPattern = Pattern.compile("(?<![#\\w])" + Pattern.quote(var) + "(?!\\w)");
+            if (bareVarPattern.matcher(expression).find()) {
+                missingSet.add(var);
             }
         }
+        missing.addAll(missingSet);
         return missing;
     }
 }

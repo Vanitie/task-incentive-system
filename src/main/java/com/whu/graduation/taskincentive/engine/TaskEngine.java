@@ -207,6 +207,7 @@ public class TaskEngine {
                             .taskId(taskId)
                             .rewardType(RewardType.valueOf(taskConfig.getRewardType().toUpperCase()))
                             .amount(rewardAmount)
+                            .code(rewardAmount)
                             .stockType(StockType.valueOf(taskConfig.getStockType().toUpperCase()))
                             .stageIndex(stage)
                             .build();

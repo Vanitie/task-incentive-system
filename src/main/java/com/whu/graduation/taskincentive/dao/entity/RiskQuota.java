@@ -24,6 +24,10 @@ public class RiskQuota {
      */
     private Long id;
     /**
+     * 配额名称
+     */
+    private String quotaName;
+    /**
      * 配额作用范围类型（user/task/activity/global）
      */
     private String scopeType;
