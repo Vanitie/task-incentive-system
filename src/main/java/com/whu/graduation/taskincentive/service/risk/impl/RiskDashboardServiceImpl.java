@@ -16,6 +16,11 @@ import java.util.*;
 public class RiskDashboardServiceImpl implements RiskDashboardService {
 
     private static final String DATE_FMT = "yyyy-MM-dd";
+    private static final String PASS = "PASS";
+    private static final String REJECT = "REJECT";
+    private static final String DEGRADE_PASS = "DEGRADE_PASS";
+    private static final String REVIEW = "REVIEW";
+    private static final String FREEZE = "FREEZE";
 
     private final RiskDecisionLogMapper riskDecisionLogMapper;
 
@@ -30,16 +35,19 @@ public class RiskDashboardServiceImpl implements RiskDashboardService {
         Date rangeEnd = range[1];
 
         Map<String, Long> decisionCounts = loadDecisionCounts(rangeStart, rangeEnd);
-        long total = decisionCounts.values().stream().mapToLong(v -> v).sum();
-        long pass = decisionCounts.getOrDefault("PASS", 0L);
-        long reject = decisionCounts.getOrDefault("REJECT", 0L);
-        long degrade = decisionCounts.getOrDefault("DEGRADE_PASS", 0L);
-        long review = decisionCounts.getOrDefault("REVIEW", 0L);
-        long freeze = decisionCounts.getOrDefault("FREEZE", 0L);
+        Map<String, Long> statusCounts = normalizeStatusCounts(decisionCounts);
+
+        long total = statusCounts.values().stream().mapToLong(v -> v).sum();
+        long pass = statusCounts.get(PASS);
+        long reject = statusCounts.get(REJECT);
+        long degrade = statusCounts.get(DEGRADE_PASS);
+        long review = statusCounts.get(REVIEW);
+        long freeze = statusCounts.get(FREEZE);
 
         long intercept = reject + review + freeze;
         double interceptRate = total == 0 ? 0.0 : round2(intercept * 100.0 / total);
         double passRate = total == 0 ? 0.0 : round2(pass * 100.0 / total);
+        Map<String, Double> statusRates = buildStatusRates(statusCounts, total);
 
         List<Long> latencies = riskDecisionLogMapper.selectLatencies(rangeStart, rangeEnd);
         double avgLatency = average(latencies);
@@ -55,6 +63,8 @@ public class RiskDashboardServiceImpl implements RiskDashboardService {
                 .degradePass(degrade)
                 .review(review)
                 .freeze(freeze)
+                .statusCounts(statusCounts)
+                .statusRates(statusRates)
                 .interceptRate(interceptRate)
                 .passRate(passRate)
                 .avgLatencyMs(avgLatency)
@@ -89,12 +99,13 @@ public class RiskDashboardServiceImpl implements RiskDashboardService {
         while (cal.getTime().before(rangeEnd)) {
             String date = sdf.format(cal.getTime());
             Map<String, Long> map = dateToDecision.getOrDefault(date, Collections.emptyMap());
-            long pass = map.getOrDefault("PASS", 0L);
-            long reject = map.getOrDefault("REJECT", 0L);
-            long degrade = map.getOrDefault("DEGRADE_PASS", 0L);
-            long review = map.getOrDefault("REVIEW", 0L);
-            long freeze = map.getOrDefault("FREEZE", 0L);
-            long total = pass + reject + degrade + review + freeze;
+            Map<String, Long> statusCounts = normalizeStatusCounts(map);
+            long pass = statusCounts.get(PASS);
+            long reject = statusCounts.get(REJECT);
+            long degrade = statusCounts.get(DEGRADE_PASS);
+            long review = statusCounts.get(REVIEW);
+            long freeze = statusCounts.get(FREEZE);
+            long total = statusCounts.values().stream().mapToLong(v -> v).sum();
             result.add(RiskDashboardTrendItem.builder()
                     .date(date)
                     .total(total)
@@ -103,10 +114,30 @@ public class RiskDashboardServiceImpl implements RiskDashboardService {
                     .degradePass(degrade)
                     .review(review)
                     .freeze(freeze)
+                    .statusCounts(statusCounts)
                     .build());
             cal.add(Calendar.DAY_OF_MONTH, 1);
         }
         return result;
+    }
+
+    private Map<String, Long> normalizeStatusCounts(Map<String, Long> raw) {
+        Map<String, Long> normalized = new LinkedHashMap<>();
+        normalized.put(PASS, raw.getOrDefault(PASS, 0L));
+        normalized.put(REJECT, raw.getOrDefault(REJECT, 0L));
+        normalized.put(DEGRADE_PASS, raw.getOrDefault(DEGRADE_PASS, 0L));
+        normalized.put(REVIEW, raw.getOrDefault(REVIEW, 0L));
+        normalized.put(FREEZE, raw.getOrDefault(FREEZE, 0L));
+        return normalized;
+    }
+
+    private Map<String, Double> buildStatusRates(Map<String, Long> statusCounts, long total) {
+        Map<String, Double> rates = new LinkedHashMap<>();
+        for (Map.Entry<String, Long> e : statusCounts.entrySet()) {
+            double rate = total == 0 ? 0.0 : round2(e.getValue() * 100.0 / total);
+            rates.put(e.getKey(), rate);
+        }
+        return rates;
     }
 
     private Date[] normalizeRange(Date start, Date end) {

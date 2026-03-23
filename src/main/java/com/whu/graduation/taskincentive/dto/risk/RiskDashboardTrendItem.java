@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.Map;
+
 /**
  * 风控看板按天趋势项
  */
@@ -35,4 +37,7 @@ public class RiskDashboardTrendItem {
 
     @Schema(description = "冻结数")
     private long freeze;
+
+    @Schema(description = "五种决策状态计数（PASS/REJECT/DEGRADE_PASS/REVIEW/FREEZE）")
+    private Map<String, Long> statusCounts;
 }

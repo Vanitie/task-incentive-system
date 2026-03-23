@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.Date;
+import java.util.Map;
 
 /**
  * 风控看板总览数据
@@ -40,6 +41,12 @@ public class RiskDashboardOverviewResponse {
 
     @Schema(description = "冻结数")
     private long freeze;
+
+    @Schema(description = "五种决策状态计数（PASS/REJECT/DEGRADE_PASS/REVIEW/FREEZE）")
+    private Map<String, Long> statusCounts;
+
+    @Schema(description = "五种决策状态占比（百分比）")
+    private Map<String, Double> statusRates;
 
     @Schema(description = "拦截率（百分比）")
     private double interceptRate;

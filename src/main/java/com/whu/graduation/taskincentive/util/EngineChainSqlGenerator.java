@@ -26,6 +26,7 @@ public class EngineChainSqlGenerator {
 
     private static final DateTimeFormatter DT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final String DEFAULT_BCRYPT = "$2a$10$7EqJtq98hPqEX7fNZaFWoOQ3z6M4s5xj8gJHjQ2j1bVjAqLr7Qw4K";
+    private static final String DEFAULT_K6_FILE = "engine_process_event_k6.js";
 
     private static final int DAYS = 7;
     private static final int USER_MIN_PER_DAY = 80;
@@ -53,27 +54,38 @@ public class EngineChainSqlGenerator {
     private final List<RiskListSeed> blacklists = new ArrayList<>();
     private final List<RiskQuotaSeed> quotas = new ArrayList<>();
     private final List<RiskRuleSeed> rules = new ArrayList<>();
+    private final List<RiskDecisionLogSeed> decisionLogs = new ArrayList<>();
+    private final List<RewardFreezeRecordSeed> freezeRecords = new ArrayList<>();
 
     public static void main(String[] args) throws Exception {
         String output = args.length > 0 ? args[0] : "engine_chain_demo_data.sql";
-        new EngineChainSqlGenerator().generate(output);
+        String k6Output = args.length > 1 ? args[1] : DEFAULT_K6_FILE;
+        String bearerToken = args.length > 2 ? args[2] : null;
+        new EngineChainSqlGenerator().generate(output, k6Output, bearerToken);
         System.out.println("SQL generated: " + output);
+        System.out.println("k6 template generated: " + k6Output);
     }
 
     public void generate(String outputFile) throws IOException {
+        generate(outputFile, DEFAULT_K6_FILE, null);
+    }
+
+    public void generate(String outputFile, String k6OutputFile, String bearerToken) throws IOException {
         LocalDate end = LocalDate.now();
         LocalDate start = end.minusDays(DAYS - 1L);
 
         buildUsers(start, end);
-        buildBadges(start);
+        buildBadges();
         buildTasks(start, end);
         buildUserTaskInstances(end);
         buildActionAndRewardData();
         buildRiskLists();
         buildRiskQuotas();
         buildRiskRules(start, end);
+        buildRiskDecisionAndFreezeRecords();
 
         writeSql(outputFile);
+        writeK6Template(k6OutputFile, bearerToken);
     }
 
     private void buildUsers(LocalDate start, LocalDate end) {
@@ -99,45 +111,49 @@ public class EngineChainSqlGenerator {
         users.add(new UserSeed(nextId(), "风控测试员", DEFAULT_BCRYPT, "ROLE_USER", 1000, adminTime, adminTime));
     }
 
-    private void buildBadges(LocalDate firstDay) {
+    private void buildBadges() {
         String[][] badgeData = {
-                {"签到新秀", "完成首次签到，迈出成长第一步", "https://img.icons8.com/color/96/calendar--v1.png"},
-                {"签到达人", "连续签到达到3天，保持稳定节奏", "https://img.icons8.com/color/96/today.png"},
-                {"全勤标兵", "连续签到达到7天，自律可嘉", "https://img.icons8.com/color/96/checked-calendar.png"},
-                {"晨光学习者", "在上午时段保持高频学习", "https://img.icons8.com/color/96/sun--v1.png"},
-                {"夜航学习者", "在夜间时段依然坚持学习", "https://img.icons8.com/color/96/moon-symbol.png"},
-                {"学习新星", "累计学习时长达到阶段目标", "https://img.icons8.com/color/96/star--v1.png"},
-                {"知识探索者", "完成多样化学习任务挑战", "https://img.icons8.com/color/96/compass--v1.png"},
-                {"效率先锋", "单位时间学习效率表现优异", "https://img.icons8.com/color/96/lightning-bolt--v1.png"},
-                {"任务征服者", "完成多个任务并保持高完成率", "https://img.icons8.com/color/96/trophy--v1.png"},
-                {"冲刺王者", "在短时间内达成高强度目标", "https://img.icons8.com/color/96/rocket--v1.png"},
-                {"进阶学徒", "完成进阶层级任务第一档", "https://img.icons8.com/color/96/medal2--v1.png"},
-                {"进阶骑士", "完成进阶层级任务第二档", "https://img.icons8.com/color/96/medal-first-place--v1.png"},
-                {"进阶宗师", "完成进阶层级任务最高档", "https://img.icons8.com/color/96/prize.png"},
-                {"目标达成者", "单日目标达成率持续稳定", "https://img.icons8.com/color/96/goal--v1.png"},
-                {"连续挑战者", "连续挑战多个任务周期", "https://img.icons8.com/color/96/recurring-appointment.png"},
-                {"坚持不懈", "在低活跃期依然保持打卡", "https://img.icons8.com/color/96/strength.png"},
-                {"行动派", "接取任务后快速进入执行状态", "https://img.icons8.com/color/96/running.png"},
-                {"稳步前行", "任务进度长期保持正向增长", "https://img.icons8.com/color/96/upward-arrow.png"},
-                {"高效执行", "任务执行速度显著高于平均", "https://img.icons8.com/color/96/speed.png"},
-                {"专注达人", "专注学习并减少无效操作", "https://img.icons8.com/color/96/focus.png"},
-                {"思维火花", "在关键节点完成高质量任务", "https://img.icons8.com/color/96/idea--v1.png"},
-                {"协作之星", "参与协作类活动并表现积极", "https://img.icons8.com/color/96/teamwork.png"},
-                {"成长飞轮", "持续完成任务形成正反馈", "https://img.icons8.com/color/96/recycle-sign.png"},
-                {"卓越表现", "多项指标同时达到优秀阈值", "https://img.icons8.com/color/96/crown.png"},
-                {"周度活跃", "连续一周保持任务活跃", "https://img.icons8.com/color/96/timeline-week.png"},
-                {"月度活跃", "月度任务活跃度达到标准", "https://img.icons8.com/color/96/timeline-month.png"},
-                {"风控安全", "行为稳定且风险评分优秀", "https://img.icons8.com/color/96/security-checked.png"},
-                {"质量标杆", "任务完成质量长期保持高位", "https://img.icons8.com/color/96/quality.png"},
-                {"荣耀时刻", "达成高难度综合目标", "https://img.icons8.com/color/96/fireworks.png"},
-                {"巅峰成就", "达成系统设定的顶级荣誉", "https://img.icons8.com/color/96/laurel-wreath--v1.png"}
+                {"2000000000000000730", "签到新秀", "3001", "https://img.icons8.com/color/96/calendar--v1.png", "完成首次签到，迈出成长第一步", "2026-03-16 09:00:00", "2026-03-16 09:00:00"},
+                {"2000000000000000731", "签到达人", "3002", "https://img.icons8.com/color/96/today.png", "连续签到达到3天，保持稳定节奏", "2026-03-16 09:01:00", "2026-03-16 09:01:00"},
+                {"2000000000000000732", "全勤标兵", "3003", "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/icons/calendar-check-fill.svg", "连续签到达到7天，自律可嘉", "2026-03-16 09:02:00", "2026-03-22 23:37:22"},
+                {"2000000000000000733", "晨光学习者", "3004", "https://img.icons8.com/color/96/sun--v1.png", "在上午时段保持高频学习", "2026-03-16 09:03:00", "2026-03-16 09:03:00"},
+                {"2000000000000000734", "夜航学习者", "3005", "https://img.icons8.com/color/96/moon-symbol.png", "在夜间时段依然坚持学习", "2026-03-16 09:04:00", "2026-03-16 09:04:00"},
+                {"2000000000000000735", "学习新星", "3006", "https://img.icons8.com/color/96/star--v1.png", "累计学习时长达到阶段目标", "2026-03-16 09:05:00", "2026-03-16 09:05:00"},
+                {"2000000000000000736", "知识探索者", "3007", "https://img.icons8.com/color/96/compass--v1.png", "完成多样化学习任务挑战", "2026-03-16 09:06:00", "2026-03-16 09:06:00"},
+                {"2000000000000000737", "效率先锋", "3008", "https://img.icons8.com/color/96/lightning-bolt--v1.png", "单位时间学习效率表现优异", "2026-03-16 09:07:00", "2026-03-16 09:07:00"},
+                {"2000000000000000738", "任务征服者", "3009", "https://img.icons8.com/color/96/trophy--v1.png", "完成多个任务并保持高完成率", "2026-03-16 09:08:00", "2026-03-16 09:08:00"},
+                {"2000000000000000739", "冲刺王者", "3010", "https://img.icons8.com/color/96/rocket--v1.png", "在短时间内达成高强度目标", "2026-03-16 09:09:00", "2026-03-16 09:09:00"},
+                {"2000000000000000740", "进阶学徒", "3011", "https://img.icons8.com/color/96/medal2--v1.png", "完成进阶层级任务第一档", "2026-03-16 09:10:00", "2026-03-16 09:10:00"},
+                {"2000000000000000741", "进阶骑士", "3012", "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/icons/shield-fill-check.svg", "完成进阶层级任务第二档", "2026-03-16 09:11:00", "2026-03-22 23:37:22"},
+                {"2000000000000000742", "进阶宗师", "3013", "https://img.icons8.com/color/96/prize.png", "完成进阶层级任务最高档", "2026-03-16 09:12:00", "2026-03-16 09:12:00"},
+                {"2000000000000000743", "目标达成者", "3014", "https://img.icons8.com/color/96/goal--v1.png", "单日目标达成率持续稳定", "2026-03-16 09:13:00", "2026-03-16 09:13:00"},
+                {"2000000000000000744", "连续挑战者", "3015", "https://img.icons8.com/color/96/recurring-appointment.png", "连续挑战多个任务周期", "2026-03-16 09:14:00", "2026-03-16 09:14:00"},
+                {"2000000000000000745", "坚持不懈", "3016", "https://img.icons8.com/color/96/strength.png", "在低活跃期依然保持打卡", "2026-03-16 09:15:00", "2026-03-16 09:15:00"},
+                {"2000000000000000746", "行动派", "3017", "https://img.icons8.com/color/96/running.png", "接取任务后快速进入执行状态", "2026-03-16 09:16:00", "2026-03-16 09:16:00"},
+                {"2000000000000000747", "稳步前行", "3018", "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/icons/graph-up-arrow.svg", "任务进度长期保持正向增长", "2026-03-16 09:17:00", "2026-03-22 23:37:22"},
+                {"2000000000000000748", "高效执行", "3019", "https://img.icons8.com/color/96/speed.png", "任务执行速度显著高于平均", "2026-03-16 09:18:00", "2026-03-16 09:18:00"},
+                {"2000000000000000749", "专注达人", "3020", "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/icons/bullseye.svg", "专注学习并减少无效操作", "2026-03-16 09:19:00", "2026-03-22 23:37:22"},
+                {"2000000000000000750", "思维火花", "3021", "https://img.icons8.com/color/96/idea--v1.png", "在关键节点完成高质量任务", "2026-03-16 09:20:00", "2026-03-16 09:20:00"},
+                {"2000000000000000751", "协作之星", "3022", "https://img.icons8.com/color/96/teamwork.png", "参与协作类活动并表现积极", "2026-03-16 09:21:00", "2026-03-16 09:21:00"},
+                {"2000000000000000752", "成长飞轮", "3023", "https://img.icons8.com/color/96/recycle-sign.png", "持续完成任务形成正反馈", "2026-03-16 09:22:00", "2026-03-16 09:22:00"},
+                {"2000000000000000753", "卓越表现", "3024", "https://img.icons8.com/color/96/crown.png", "多项指标同时达到优秀阈值", "2026-03-16 09:23:00", "2026-03-16 09:23:00"},
+                {"2000000000000000754", "周度活跃", "3025", "https://img.icons8.com/color/96/timeline-week.png", "连续一周保持任务活跃", "2026-03-16 09:24:00", "2026-03-16 09:24:00"},
+                {"2000000000000000755", "月度活跃", "3026", "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/icons/calendar3.svg", "月度任务活跃度达到标准", "2026-03-16 09:25:00", "2026-03-22 23:37:22"},
+                {"2000000000000000756", "风控安全", "3027", "https://img.icons8.com/color/96/security-checked.png", "行为稳定且风险评分优秀", "2026-03-16 09:26:00", "2026-03-16 09:26:00"},
+                {"2000000000000000757", "质量标杆", "3028", "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/icons/patch-check-fill.svg", "任务完成质量长期保持高位", "2026-03-16 09:27:00", "2026-03-22 23:37:22"},
+                {"2000000000000000758", "荣耀时刻", "3029", "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/icons/trophy-fill.svg", "达成高难度综合目标", "2026-03-16 09:28:00", "2026-03-22 23:37:22"},
+                {"2000000000000000759", "巅峰成就", "3030", "https://img.icons8.com/color/96/laurel-wreath--v1.png", "达成系统设定的顶级荣誉", "2026-03-16 09:29:00", "2026-03-16 09:29:00"}
         };
-        for (int i = 0; i < badgeData.length; i++) {
-            long id = nextId();
-            int code = 3001 + i;
-            LocalDateTime ct = LocalDateTime.of(firstDay, LocalTime.of(9, 0)).plusMinutes(i);
-            badges.add(new BadgeSeed(id, badgeData[i][0], code,
-                    badgeData[i][2], badgeData[i][1], ct, ct));
+        for (String[] row : badgeData) {
+            long id = Long.parseLong(row[0]);
+            String name = row[1];
+            int code = Integer.parseInt(row[2]);
+            String imageUrl = row[3];
+            String description = row[4];
+            LocalDateTime createTime = LocalDateTime.parse(row[5], DT);
+            LocalDateTime updateTime = LocalDateTime.parse(row[6], DT);
+
+            badges.add(new BadgeSeed(id, name, code, imageUrl, description, createTime, updateTime));
             badgeIdByCode.put(code, id);
         }
     }
@@ -380,6 +396,49 @@ public class EngineChainSqlGenerator {
                 "DEGRADE_PASS", "{\"ratio\":0.3}", startTime, endTime, 1, "系统造数", "系统造数", now, now));
     }
 
+    private void buildRiskDecisionAndFreezeRecords() {
+        Map<String, UserRewardRecordSeed> rewardByUserTask = new HashMap<>();
+        for (UserRewardRecordSeed rewardRecord : rewardRecords) {
+            rewardByUserTask.putIfAbsent(rewardRecord.userId + "_" + rewardRecord.taskId, rewardRecord);
+        }
+
+        int requestSeq = 1;
+        for (UserTaskInstanceSeed ins : instances) {
+            DecisionProfile profile = chooseDecisionProfile(ins.status);
+            LocalDateTime createdAt = ins.updateTime.plusSeconds(rand(1, 55));
+
+            String requestId = String.format(Locale.ROOT, "REQ-%s-%d-%d-%04d",
+                    createdAt.format(DateTimeFormatter.BASIC_ISO_DATE), ins.userId, ins.taskId, requestSeq++);
+            String eventId = "EVT-INS-" + ins.id;
+            int riskScore = rand(profile.minScore, profile.maxScore);
+            long latencyMs = rand(5, 120);
+
+            RiskRuleSeed hitRule = findRuleByAction(profile.decision);
+            String hitRules = buildHitRulesJson(hitRule);
+
+            decisionLogs.add(new RiskDecisionLogSeed(nextId(), requestId, eventId, ins.userId, ins.taskId,
+                    profile.decision, profile.reasonCode, hitRules, riskScore, latencyMs, createdAt));
+
+            if ("FREEZE".equals(profile.decision)) {
+                String key = ins.userId + "_" + ins.taskId;
+                UserRewardRecordSeed reward = rewardByUserTask.get(key);
+
+                LocalDateTime freezeAt = createdAt.plusSeconds(rand(20, 180));
+                int status = R.nextDouble() < 0.30 ? 1 : 0;
+                LocalDateTime unfreezeAt = null;
+                LocalDateTime updatedAt = freezeAt.plusMinutes(rand(1, 120));
+                if (status == 1) {
+                    unfreezeAt = freezeAt.plusHours(rand(2, 48));
+                    updatedAt = unfreezeAt.plusMinutes(rand(0, 30));
+                }
+
+                freezeRecords.add(new RewardFreezeRecordSeed(nextId(), reward == null ? null : reward.id,
+                        ins.userId, ins.taskId, freezeReasonByCode(profile.reasonCode), status,
+                        unfreezeAt, freezeAt, updatedAt));
+            }
+        }
+    }
+
     private void writeSql(String outputFile) throws IOException {
         try (PrintWriter out = new PrintWriter(new FileWriter(outputFile))) {
             out.println("-- engine-chain demo data generated at " + LocalDateTime.now().format(DT));
@@ -503,6 +562,26 @@ public class EngineChainSqlGenerator {
                         r.startTime.format(DT), r.endTime.format(DT), r.version,
                         esc(r.createdBy), esc(r.updatedBy), r.createdAt.format(DT), r.updatedAt.format(DT));
             }
+            out.println();
+
+            for (RiskDecisionLogSeed l : decisionLogs) {
+                out.printf(Locale.ROOT,
+                        "INSERT INTO risk_decision_log (`id`,`request_id`,`event_id`,`user_id`,`task_id`,`decision`,`reason_code`,`hit_rules`,`risk_score`,`latency_ms`,`created_at`) VALUES (%d,'%s','%s',%d,%d,'%s','%s',%s,%d,%d,'%s');%n",
+                        l.id, esc(l.requestId), esc(l.eventId), l.userId, l.taskId, l.decision, l.reasonCode,
+                        l.hitRules == null ? "NULL" : ("'" + esc(l.hitRules) + "'"),
+                        l.riskScore, l.latencyMs, l.createdAt.format(DT));
+            }
+            out.println();
+
+            for (RewardFreezeRecordSeed f : freezeRecords) {
+                out.printf(Locale.ROOT,
+                        "INSERT INTO reward_freeze_record (`id`,`reward_id`,`user_id`,`task_id`,`freeze_reason`,`status`,`unfreeze_at`,`created_at`,`updated_at`) VALUES (%d,%s,%d,%d,'%s',%d,%s,'%s','%s');%n",
+                        f.id,
+                        f.rewardId == null ? "NULL" : String.valueOf(f.rewardId),
+                        f.userId, f.taskId, esc(f.freezeReason), f.status,
+                        f.unfreezeAt == null ? "NULL" : ("'" + f.unfreezeAt.format(DT) + "'"),
+                        f.createdAt.format(DT), f.updatedAt.format(DT));
+            }
 
             out.println();
             for (UserSeed u : users) {
@@ -514,6 +593,187 @@ public class EngineChainSqlGenerator {
             out.println();
             out.println("SET FOREIGN_KEY_CHECKS = 1;");
         }
+    }
+
+    private void writeK6Template(String outputFile, String bearerToken) throws IOException {
+        List<Long> userIds = new ArrayList<>();
+        for (UserSeed u : users) {
+            if ("ROLE_USER".equals(u.roles)) {
+                userIds.add(u.id);
+            }
+        }
+        if (userIds.isEmpty()) {
+            throw new IllegalStateException("no ROLE_USER users generated for k6 template");
+        }
+
+        String fallbackToken = bearerToken == null || bearerToken.trim().isEmpty()
+                ? ""
+                : bearerToken.trim();
+
+        try (PrintWriter out = new PrintWriter(new FileWriter(outputFile))) {
+            out.println("import http from 'k6/http';");
+            out.println("import { check, sleep } from 'k6';");
+            out.println("import exec from 'k6/execution';");
+            out.println();
+            out.println("// modes:");
+            out.println("// 1) TEST_MODE=baseline  -> 单接口恒定速率压测（默认）");
+            out.println("// 2) TEST_MODE=compare   -> 同步/异步并行对比（各占一半速率）");
+            out.println("// 3) TEST_MODE=max       -> 逐级爬坡找极限QPS");
+            out.println();
+            out.println("const TEST_MODE = __ENV.TEST_MODE || 'baseline';");
+            out.println("const TARGET_MODE = __ENV.TARGET_MODE || 'async'; // async|sync");
+            out.println("const RATE = Number(__ENV.RATE || 200);");
+            out.println("const PRE_VUS = Number(__ENV.PRE_VUS || 800);");
+            out.println("const MAX_VUS = Number(__ENV.MAX_VUS || 12000);");
+            out.println("const DURATION = __ENV.DURATION || '3m';");
+            out.println("const MAX_STAGES_JSON = __ENV.MAX_STAGES_JSON || '[{\"target\":1000,\"duration\":\"1m\"},{\"target\":2000,\"duration\":\"1m\"},{\"target\":3000,\"duration\":\"1m\"},{\"target\":4000,\"duration\":\"1m\"},{\"target\":5000,\"duration\":\"1m\"},{\"target\":6000,\"duration\":\"1m\"},{\"target\":7000,\"duration\":\"1m\"},{\"target\":8000,\"duration\":\"1m\"},{\"target\":9000,\"duration\":\"1m\"},{\"target\":10000,\"duration\":\"1m\"}]';");
+            out.println();
+            out.println("function parseStages() {");
+            out.println("  try {");
+            out.println("    const parsed = JSON.parse(MAX_STAGES_JSON);");
+            out.println("    if (Array.isArray(parsed) && parsed.length > 0) return parsed;");
+            out.println("  } catch (_) {}");
+            out.println("  return [{ target: 1000, duration: '1m' }, { target: 3000, duration: '1m' }, { target: 5000, duration: '1m' }, { target: 7000, duration: '1m' }, { target: 9000, duration: '1m' }, { target: 10000, duration: '1m' }];");
+            out.println("}");
+            out.println();
+            out.println("function buildScenarios() {");
+            out.println("  if (TEST_MODE === 'compare') {");
+            out.println("    const half = Math.max(1, Math.floor(RATE / 2));");
+            out.println("    return {");
+            out.println("      compare_async: {");
+            out.println("        executor: 'constant-arrival-rate',");
+            out.println("        rate: half,");
+            out.println("        timeUnit: '1s',");
+            out.println("        duration: DURATION,");
+            out.println("        preAllocatedVUs: PRE_VUS,");
+            out.println("        maxVUs: MAX_VUS,");
+            out.println("      },");
+            out.println("      compare_sync: {");
+            out.println("        executor: 'constant-arrival-rate',");
+            out.println("        rate: half,");
+            out.println("        timeUnit: '1s',");
+            out.println("        duration: DURATION,");
+            out.println("        preAllocatedVUs: PRE_VUS,");
+            out.println("        maxVUs: MAX_VUS,");
+            out.println("      },");
+            out.println("    }; ");
+            out.println("  }");
+            out.println("  if (TEST_MODE === 'max') {");
+            out.println("    return {");
+            out.println("      max_probe: {");
+            out.println("        executor: 'ramping-arrival-rate',");
+            out.println("        startRate: Number(__ENV.START_RATE || 1000),");
+            out.println("        timeUnit: '1s',");
+            out.println("        preAllocatedVUs: PRE_VUS,");
+            out.println("        maxVUs: MAX_VUS,");
+            out.println("        stages: parseStages(),");
+            out.println("      },");
+            out.println("    }; ");
+            out.println("  }");
+            out.println("  return {");
+            out.println("    baseline_single: {");
+            out.println("      executor: 'constant-arrival-rate',");
+            out.println("      rate: RATE,");
+            out.println("      timeUnit: '1s',");
+            out.println("      duration: DURATION,");
+            out.println("      preAllocatedVUs: PRE_VUS,");
+            out.println("      maxVUs: MAX_VUS,");
+            out.println("    },");
+            out.println("  }; ");
+            out.println("}");
+            out.println();
+            out.println("export const options = {");
+            out.println("  scenarios: buildScenarios(),");
+            out.println("  thresholds: {");
+            out.println("    http_req_failed: ['rate<0.01'],");
+            out.println("    http_req_duration: ['p(95)<500', 'p(99)<1200'],");
+            out.println("  },");
+            out.println("  summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max', 'count'],");
+            out.println("};");
+            out.println();
+            out.println("const BASE_URL = __ENV.BASE_URL || 'http://127.0.0.1:8080';");
+            out.println("const BEARER_TOKEN = __ENV.BEARER_TOKEN || '" + escJs(fallbackToken) + "';");
+            out.println("const DUPLICATE_RATE = Number(__ENV.DUPLICATE_RATE || 0.1);");
+            out.println("const NO_MSG_ID_RATE = Number(__ENV.NO_MSG_ID_RATE || 0.03);");
+            out.println("const USER_IDS = [" + joinLongList(userIds) + "]; ");
+            out.println("const EVENT_TYPES = ['USER_LEARN', 'USER_SIGN'];");
+            out.println("const DUP_POOL = Array.from({ length: 200 }, (_, i) => `dup-${i + 1}`);");
+            out.println("const ASYNC_ENDPOINT = '/api/engine/process-event-async';");
+            out.println("const SYNC_ENDPOINT = '/api/engine/process-event-sync';");
+            out.println();
+            out.println("function pick(arr) {");
+            out.println("  return arr[Math.floor(Math.random() * arr.length)];");
+            out.println("}");
+            out.println();
+            out.println("function endpointTypeForScenario() {");
+            out.println("  if (TEST_MODE === 'compare') {");
+            out.println("    return exec.scenario.name && exec.scenario.name.indexOf('sync') >= 0 ? 'sync' : 'async';");
+            out.println("  }");
+            out.println("  return TARGET_MODE === 'sync' ? 'sync' : 'async';");
+            out.println("}");
+            out.println();
+            out.println("export default function () {");
+            out.println("  const userId = USER_IDS[(__VU + __ITER) % USER_IDS.length];");
+            out.println("  const endpointType = endpointTypeForScenario();");
+            out.println("  const endpoint = endpointType === 'sync' ? SYNC_ENDPOINT : ASYNC_ENDPOINT;");
+            out.println("  const useDuplicate = Math.random() < DUPLICATE_RATE;");
+            out.println("  const dropMessageId = Math.random() < NO_MSG_ID_RATE;");
+            out.println("  const uniqueId = `mid-${Date.now()}-${__VU}-${__ITER}-${Math.floor(Math.random() * 100000)}`;");
+            out.println("  const messageId = useDuplicate ? pick(DUP_POOL) : uniqueId;");
+            out.println();
+            out.println("  const payload = {");
+            out.println("    userId: userId,");
+            out.println("    eventType: pick(EVENT_TYPES),");
+            out.println("    value: Math.floor(Math.random() * 5) + 1,");
+            out.println("    time: new Date().toISOString(),");
+            out.println("    requestId: `req-${uniqueId}`,");
+            out.println("    eventId: `evt-${uniqueId}`,");
+            out.println("    deviceId: `device-${(userId % 500) + 1}`,");
+            out.println("    ip: `10.10.${userId % 20}.${(userId % 200) + 1}`,");
+            out.println("    channel: 'k6',");
+            out.println("  };");
+            out.println("  if (!dropMessageId) {");
+            out.println("    payload.messageId = messageId;");
+            out.println("  }");
+            out.println();
+            out.println("  const headers = { 'Content-Type': 'application/json' };");
+            out.println("  if (BEARER_TOKEN) {");
+            out.println("    headers.Authorization = `Bearer ${BEARER_TOKEN}`;");
+            out.println("  }");
+            out.println();
+            out.println("  const res = http.post(`${BASE_URL}${endpoint}`, JSON.stringify(payload), {");
+            out.println("    headers,");
+            out.println("    tags: { endpoint_type: endpointType, scenario_name: exec.scenario.name || 'na' },");
+            out.println("  });");
+            out.println("  const ok = endpointType === 'async' ? [200, 202, 503].includes(res.status) : [200].includes(res.status);");
+            out.println("  check(res, {");
+            out.println("    'status_ok': () => ok,");
+            out.println("  });");
+            out.println("  sleep(Number(__ENV.SLEEP_SEC || 0));");
+            out.println("}");
+            out.println();
+            out.println("export function handleSummary(data) {");
+            out.println("  return { 'k6-summary.json': JSON.stringify(data, null, 2) }; ");
+            out.println("}");
+        }
+    }
+
+    private static String joinLongList(List<Long> list) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < list.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(list.get(i));
+        }
+        return sb.toString();
+    }
+
+    private static String escJs(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace("\\", "\\\\").replace("'", "\\'");
     }
 
     private static String chooseTriggerEvent(String taskType) {
@@ -639,6 +899,72 @@ public class EngineChainSqlGenerator {
             return "{\"entries\":[{\"time\":\"" + t1 + "\",\"value\":" + v1 + "},{\"time\":\"" + t2 + "\",\"value\":" + v2 + "}]}";
         }
         return null;
+    }
+
+    private DecisionProfile chooseDecisionProfile(int instanceStatus) {
+        double p = R.nextDouble();
+
+        if (instanceStatus == 3) {
+            if (p < 0.84) return new DecisionProfile("PASS", "NO_RULE_HIT", 0, 29);
+            if (p < 0.91) return new DecisionProfile("DEGRADE_PASS", "MID_RISK_DEGRADE", 30, 59);
+            if (p < 0.96) return new DecisionProfile("REVIEW", "FREQ_1H_ABNORMAL", 60, 79);
+            if (p < 0.98) return new DecisionProfile("REJECT", "BLACKLIST_HIT", 80, 94);
+            return new DecisionProfile("FREEZE", "QUOTA_EXCEEDED", 95, 100);
+        }
+
+        if (instanceStatus == 4) {
+            if (p < 0.52) return new DecisionProfile("PASS", "NO_RULE_HIT", 0, 29);
+            if (p < 0.68) return new DecisionProfile("DEGRADE_PASS", "NIGHT_DEGRADE", 30, 59);
+            if (p < 0.83) return new DecisionProfile("REVIEW", "DEVICE_SWITCH", 60, 79);
+            if (p < 0.94) return new DecisionProfile("REJECT", "IP_BURST", 80, 94);
+            return new DecisionProfile("FREEZE", "QUOTA_EXCEEDED", 95, 100);
+        }
+
+        if (p < 0.75) return new DecisionProfile("PASS", "NO_RULE_HIT", 0, 29);
+        if (p < 0.85) return new DecisionProfile("DEGRADE_PASS", "MID_RISK_DEGRADE", 30, 59);
+        if (p < 0.93) return new DecisionProfile("REVIEW", "FREQ_1H_ABNORMAL", 60, 79);
+        if (p < 0.97) return new DecisionProfile("REJECT", "DEVICE_BURST", 80, 94);
+        return new DecisionProfile("FREEZE", "AMOUNT_1D_LIMIT", 95, 100);
+    }
+
+    private RiskRuleSeed findRuleByAction(String action) {
+        RiskRuleSeed matched = null;
+        for (RiskRuleSeed rule : rules) {
+            if (!action.equals(rule.action) || rule.status != 1) {
+                continue;
+            }
+            if (matched == null || rule.priority > matched.priority) {
+                matched = rule;
+            }
+        }
+        return matched;
+    }
+
+    private String buildHitRulesJson(RiskRuleSeed hitRule) {
+        if (hitRule == null) {
+            return "[]";
+        }
+        return "[{\"ruleId\":" + hitRule.id
+                + ",\"name\":\"" + escJson(hitRule.name) + "\""
+                + ",\"action\":\"" + hitRule.action + "\""
+                + ",\"priority\":" + hitRule.priority + "}]";
+    }
+
+    private String freezeReasonByCode(String reasonCode) {
+        if ("AMOUNT_1D_LIMIT".equals(reasonCode)) {
+            return "触发日额度限制，奖励进入冻结队列";
+        }
+        if ("QUOTA_EXCEEDED".equals(reasonCode)) {
+            return "触发配额上限，奖励暂缓发放";
+        }
+        return "命中风控冻结策略";
+    }
+
+    private static String escJson(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private static int extractInt(String json, String key, int defaultValue) {
@@ -944,6 +1270,76 @@ public class EngineChainSqlGenerator {
             this.updatedBy = updatedBy;
             this.createdAt = createdAt;
             this.updatedAt = updatedAt;
+        }
+    }
+
+    static class RiskDecisionLogSeed {
+        long id;
+        String requestId;
+        String eventId;
+        long userId;
+        long taskId;
+        String decision;
+        String reasonCode;
+        String hitRules;
+        int riskScore;
+        long latencyMs;
+        LocalDateTime createdAt;
+
+        RiskDecisionLogSeed(long id, String requestId, String eventId, long userId, long taskId,
+                            String decision, String reasonCode, String hitRules,
+                            int riskScore, long latencyMs, LocalDateTime createdAt) {
+            this.id = id;
+            this.requestId = requestId;
+            this.eventId = eventId;
+            this.userId = userId;
+            this.taskId = taskId;
+            this.decision = decision;
+            this.reasonCode = reasonCode;
+            this.hitRules = hitRules;
+            this.riskScore = riskScore;
+            this.latencyMs = latencyMs;
+            this.createdAt = createdAt;
+        }
+    }
+
+    static class RewardFreezeRecordSeed {
+        long id;
+        Long rewardId;
+        long userId;
+        long taskId;
+        String freezeReason;
+        int status;
+        LocalDateTime unfreezeAt;
+        LocalDateTime createdAt;
+        LocalDateTime updatedAt;
+
+        RewardFreezeRecordSeed(long id, Long rewardId, long userId, long taskId, String freezeReason,
+                               int status, LocalDateTime unfreezeAt, LocalDateTime createdAt,
+                               LocalDateTime updatedAt) {
+            this.id = id;
+            this.rewardId = rewardId;
+            this.userId = userId;
+            this.taskId = taskId;
+            this.freezeReason = freezeReason;
+            this.status = status;
+            this.unfreezeAt = unfreezeAt;
+            this.createdAt = createdAt;
+            this.updatedAt = updatedAt;
+        }
+    }
+
+    static class DecisionProfile {
+        String decision;
+        String reasonCode;
+        int minScore;
+        int maxScore;
+
+        DecisionProfile(String decision, String reasonCode, int minScore, int maxScore) {
+            this.decision = decision;
+            this.reasonCode = reasonCode;
+            this.minScore = minScore;
+            this.maxScore = maxScore;
         }
     }
 }
