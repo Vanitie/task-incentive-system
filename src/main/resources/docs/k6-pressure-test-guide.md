@@ -39,6 +39,12 @@
 
 ## 4. 已支持的环境变量
 
+### 4.0 ID 语义（重要）
+
+- `requestId`：每次请求必须唯一；脚本默认已为每一条请求生成唯一值
+- `messageId`：用于消息去重仿真，可按 `DUPLICATE_RATE` 注入重复值
+- 当重复 `messageId` 命中去重时，接口返回 `status=duplicate`
+
 ### 4.1 场景与速率相关
 
 - `TEST_MODE`

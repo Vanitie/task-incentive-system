@@ -8,6 +8,7 @@ import com.whu.graduation.taskincentive.dao.entity.RewardFreezeRecord;
 import com.whu.graduation.taskincentive.dao.mapper.RiskDecisionLogMapper;
 import com.whu.graduation.taskincentive.dao.mapper.RewardFreezeRecordMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
@@ -102,6 +103,10 @@ public class RiskDecisionPersistConsumer {
                 }
             }
 
+            acknowledgment.acknowledge();
+        } catch (DuplicateKeyException e) {
+            // 同一 requestId 的日志已存在，视为幂等成功，避免无意义重试
+            log.info("risk decision persist duplicated and ignored, payload={}, messageId={}", payload, messageId);
             acknowledgment.acknowledge();
         } catch (Exception e) {
             log.error("risk decision persist failed, payload={}, messageId={}", payload, messageId, e);

@@ -87,6 +87,7 @@ const EVENT_TYPES = ['USER_LEARN', 'USER_SIGN'];
 const DUP_POOL = Array.from({ length: 200 }, (_, i) => `dup-${i + 1}`);
 const ASYNC_ENDPOINT = '/api/engine/process-event-async';
 const SYNC_ENDPOINT = '/api/engine/process-event-sync';
+const RUN_ID = __ENV.RUN_ID || `${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
 
 function pick(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -106,6 +107,7 @@ export default function () {
   const useDuplicate = Math.random() < DUPLICATE_RATE;
   const dropMessageId = Math.random() < NO_MSG_ID_RATE;
   const uniqueId = `mid-${Date.now()}-${__VU}-${__ITER}-${Math.floor(Math.random() * 100000)}`;
+  const requestId = `req-${RUN_ID}-${exec.scenario.name || 'default'}-${exec.vu.idInTest}-${exec.scenario.iterationInTest}-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
   const messageId = useDuplicate ? pick(DUP_POOL) : uniqueId;
 
   const payload = {
@@ -113,7 +115,7 @@ export default function () {
     eventType: pick(EVENT_TYPES),
     value: Math.floor(Math.random() * 5) + 1,
     time: new Date().toISOString(),
-    requestId: `req-${uniqueId}`,
+    requestId: requestId,
     eventId: `evt-${uniqueId}`,
     deviceId: `device-${(userId % 500) + 1}`,
     ip: `10.10.${userId % 20}.${(userId % 200) + 1}`,

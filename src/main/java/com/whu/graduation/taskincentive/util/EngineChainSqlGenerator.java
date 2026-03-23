@@ -700,6 +700,7 @@ public class EngineChainSqlGenerator {
             out.println("const DUP_POOL = Array.from({ length: 200 }, (_, i) => `dup-${i + 1}`);");
             out.println("const ASYNC_ENDPOINT = '/api/engine/process-event-async';");
             out.println("const SYNC_ENDPOINT = '/api/engine/process-event-sync';");
+            out.println("const RUN_ID = __ENV.RUN_ID || `${Date.now()}-${Math.floor(Math.random() * 1000000)}`;");
             out.println();
             out.println("function pick(arr) {");
             out.println("  return arr[Math.floor(Math.random() * arr.length)];");
@@ -719,6 +720,7 @@ public class EngineChainSqlGenerator {
             out.println("  const useDuplicate = Math.random() < DUPLICATE_RATE;");
             out.println("  const dropMessageId = Math.random() < NO_MSG_ID_RATE;");
             out.println("  const uniqueId = `mid-${Date.now()}-${__VU}-${__ITER}-${Math.floor(Math.random() * 100000)}`;");
+            out.println("  const requestId = `req-${RUN_ID}-${exec.scenario.name || 'default'}-${exec.vu.idInTest}-${exec.scenario.iterationInTest}-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;");
             out.println("  const messageId = useDuplicate ? pick(DUP_POOL) : uniqueId;");
             out.println();
             out.println("  const payload = {");
@@ -726,7 +728,7 @@ public class EngineChainSqlGenerator {
             out.println("    eventType: pick(EVENT_TYPES),");
             out.println("    value: Math.floor(Math.random() * 5) + 1,");
             out.println("    time: new Date().toISOString(),");
-            out.println("    requestId: `req-${uniqueId}`,");
+            out.println("    requestId: requestId,");
             out.println("    eventId: `evt-${uniqueId}`,");
             out.println("    deviceId: `device-${(userId % 500) + 1}`,");
             out.println("    ip: `10.10.${userId % 20}.${(userId % 200) + 1}`,");

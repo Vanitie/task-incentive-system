@@ -61,8 +61,8 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
         try {
             // 1. 幂等校验（防重放）
             if (!checkDedup(request)) {
-                return buildAndLog(request, traceId, RiskDecisionAction.REJECT, RiskConstants.REASON_REPLAY,
-                        Collections.emptyList(), start, 0, null);
+                return buildResponseOnly(traceId, RiskDecisionAction.REJECT, RiskConstants.REASON_REPLAY,
+                        Collections.emptyList(), 0, null);
             }
 
             // 2. 记录指标（用于频控/聚合判断）
@@ -114,14 +114,7 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
                                              List<RiskHitRule> hitRules, long start,
                                              Integer riskScore, Double degradeRatio) {
         long latency = System.currentTimeMillis() - start;
-        RiskDecisionResponse response = RiskDecisionResponse.builder()
-                .decision(action.name())
-                .reasonCode(reason)
-                .hitRules(hitRules)
-                .riskScore(riskScore == null ? 0 : riskScore)
-                .traceId(traceId)
-                .degradeRatio(degradeRatio)
-                .build();
+        RiskDecisionResponse response = buildResponseOnly(traceId, action, reason, hitRules, riskScore, degradeRatio);
 
         RiskDecisionLog log = RiskDecisionLog.builder()
                 .id(IdWorker.getId())
@@ -160,6 +153,22 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
         } catch (Exception ignored) {
         }
         return response;
+    }
+
+    private RiskDecisionResponse buildResponseOnly(String traceId,
+                                                   RiskDecisionAction action,
+                                                   String reason,
+                                                   List<RiskHitRule> hitRules,
+                                                   Integer riskScore,
+                                                   Double degradeRatio) {
+        return RiskDecisionResponse.builder()
+                .decision(action.name())
+                .reasonCode(reason)
+                .hitRules(hitRules)
+                .riskScore(riskScore == null ? 0 : riskScore)
+                .traceId(traceId)
+                .degradeRatio(degradeRatio)
+                .build();
     }
 
     private String toJson(Object obj) {

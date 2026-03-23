@@ -19,6 +19,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -56,22 +57,8 @@ public class TaskEngineController {
     @PostMapping("/api/engine/process-event-async")
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
     public org.springframework.http.ResponseEntity<ApiResponse<?>> processEvent(@Valid @RequestBody ProcessEventRequest req) {
-        // 参数校验由 @Valid/@NotNull/@NotBlank 承担
-
-        String messageId = req.getMessageId();
-        if (messageId != null && !messageId.isEmpty()) {
-            String dedupKey = CacheKeys.DEDUP_MSG_PREFIX + messageId;
-            try {
-                // 原子操作：只有在 key 不存在时才返回 true 并设置 TTL
-                Boolean set = redisTemplate.opsForValue().setIfAbsent(dedupKey, "1", CacheKeys.DEFAULT_DEDUP_TTL_DAYS, TimeUnit.DAYS);
-                if (Boolean.FALSE.equals(set)) {
-                    log.info("duplicate event ignored, messageId={}", messageId);
-                    return org.springframework.http.ResponseEntity.ok(ApiResponse.success(Collections.singletonMap("status", "duplicate")));
-                }
-            } catch (Exception e) {
-                // Redis 不可用时降级，不应阻塞入队；记录警告并继续
-                log.warn("redis dedup check failed for messageId={}, err={}", messageId, e.getMessage());
-            }
+        if (isDuplicateMessage(req.getMessageId())) {
+            return org.springframework.http.ResponseEntity.ok(ApiResponse.success(Collections.singletonMap("status", "duplicate")));
         }
 
         UserEvent event = new UserEvent();
@@ -83,7 +70,7 @@ public class TaskEngineController {
         } else {
             event.setTime(LocalDateTime.now());
         }
-        event.setRequestId(req.getRequestId() == null ? req.getMessageId() : req.getRequestId());
+        event.setRequestId(resolveRequestId(req));
         event.setEventId(req.getEventId());
         event.setDeviceId(req.getDeviceId());
         event.setIp(req.getIp());
@@ -118,12 +105,16 @@ public class TaskEngineController {
     @PostMapping("/api/engine/process-event-sync")
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
     public ApiResponse<?> processEventSync(@Valid @RequestBody ProcessEventRequest req) {
+        if (isDuplicateMessage(req.getMessageId())) {
+            return ApiResponse.success(Collections.singletonMap("status", "duplicate"));
+        }
+
         UserEvent event = new UserEvent();
         event.setUserId(req.getUserId());
         event.setEventType(req.getEventType());
         event.setValue(req.getValue());
         event.setTime(req.getTime() == null ? LocalDateTime.now() : req.getTime());
-        event.setRequestId(req.getRequestId() == null ? req.getMessageId() : req.getRequestId());
+        event.setRequestId(resolveRequestId(req));
         event.setEventId(req.getEventId());
         event.setDeviceId(req.getDeviceId());
         event.setIp(req.getIp());
@@ -137,6 +128,35 @@ public class TaskEngineController {
             log.error("sync process failed", e);
             return ApiResponse.error(500, e.getMessage());
         }
+    }
+
+    private String resolveRequestId(ProcessEventRequest req) {
+        String requestId = req == null ? null : req.getRequestId();
+        if (requestId != null) {
+            requestId = requestId.trim();
+            if (!requestId.isEmpty()) {
+                return requestId;
+            }
+        }
+        return "req-" + UUID.randomUUID();
+    }
+
+    private boolean isDuplicateMessage(String messageId) {
+        if (messageId == null || messageId.isEmpty()) {
+            return false;
+        }
+        String dedupKey = CacheKeys.DEDUP_MSG_PREFIX + messageId;
+        try {
+            Boolean set = redisTemplate.opsForValue().setIfAbsent(dedupKey, "1", CacheKeys.DEFAULT_DEDUP_TTL_DAYS, TimeUnit.DAYS);
+            if (Boolean.FALSE.equals(set)) {
+                log.info("duplicate event ignored, messageId={}", messageId);
+                return true;
+            }
+        } catch (Exception e) {
+            // Redis 异常时降级继续，避免影响主链路处理
+            log.warn("redis dedup check failed for messageId={}, err={}", messageId, e.getMessage());
+        }
+        return false;
     }
 
     @Data
