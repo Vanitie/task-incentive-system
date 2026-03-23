@@ -107,7 +107,7 @@ export default function () {
   const useDuplicate = Math.random() < DUPLICATE_RATE;
   const dropMessageId = Math.random() < NO_MSG_ID_RATE;
   const uniqueId = `mid-${Date.now()}-${__VU}-${__ITER}-${Math.floor(Math.random() * 100000)}`;
-  const requestId = `req-${RUN_ID}-${exec.scenario.name || 'default'}-${exec.vu.idInTest}-${exec.scenario.iterationInTest}-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+  const requestId = `req-${RUN_ID}-${exec.vu.idInTest}-${exec.scenario.iterationInTest}`;
   const messageId = useDuplicate ? pick(DUP_POOL) : uniqueId;
 
   const payload = {

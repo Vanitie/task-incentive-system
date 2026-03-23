@@ -42,6 +42,8 @@
 ### 4.0 ID 语义（重要）
 
 - `requestId`：每次请求必须唯一；脚本默认已为每一条请求生成唯一值
+- `requestId` 长度建议不超过 64（对应 `risk_decision_log.request_id`）
+- 后端会对超长 `requestId` 做哈希归一化（`reqh-<md5>`）后再参与幂等与落库
 - `messageId`：用于消息去重仿真，可按 `DUPLICATE_RATE` 注入重复值
 - 当重复 `messageId` 命中去重时，接口返回 `status=duplicate`
 

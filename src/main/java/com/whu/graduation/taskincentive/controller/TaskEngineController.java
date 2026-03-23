@@ -13,10 +13,12 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.DigestUtils;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.UUID;
@@ -31,6 +33,8 @@ import java.util.concurrent.TimeUnit;
 @RestController
 @Validated
 public class TaskEngineController {
+
+    private static final int REQUEST_ID_MAX_LEN = 64;
 
     @Autowired
     private TaskEngine taskEngine;
@@ -135,10 +139,18 @@ public class TaskEngineController {
         if (requestId != null) {
             requestId = requestId.trim();
             if (!requestId.isEmpty()) {
-                return requestId;
+                return normalizeRequestId(requestId);
             }
         }
         return "req-" + UUID.randomUUID();
+    }
+
+    private String normalizeRequestId(String requestId) {
+        if (requestId.length() <= REQUEST_ID_MAX_LEN) {
+            return requestId;
+        }
+        String hash = DigestUtils.md5DigestAsHex(requestId.getBytes(StandardCharsets.UTF_8));
+        return "reqh-" + hash;
     }
 
     private boolean isDuplicateMessage(String messageId) {

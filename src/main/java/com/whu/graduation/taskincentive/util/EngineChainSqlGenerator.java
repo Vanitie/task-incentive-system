@@ -720,7 +720,7 @@ public class EngineChainSqlGenerator {
             out.println("  const useDuplicate = Math.random() < DUPLICATE_RATE;");
             out.println("  const dropMessageId = Math.random() < NO_MSG_ID_RATE;");
             out.println("  const uniqueId = `mid-${Date.now()}-${__VU}-${__ITER}-${Math.floor(Math.random() * 100000)}`;");
-            out.println("  const requestId = `req-${RUN_ID}-${exec.scenario.name || 'default'}-${exec.vu.idInTest}-${exec.scenario.iterationInTest}-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;");
+            out.println("  const requestId = `req-${RUN_ID}-${exec.vu.idInTest}-${exec.scenario.iterationInTest}`;");
             out.println("  const messageId = useDuplicate ? pick(DUP_POOL) : uniqueId;");
             out.println();
             out.println("  const payload = {");
