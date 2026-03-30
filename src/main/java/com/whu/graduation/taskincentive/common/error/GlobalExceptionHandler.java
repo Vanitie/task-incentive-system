@@ -1,6 +1,8 @@
 package com.whu.graduation.taskincentive.common.error;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -30,6 +32,20 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.joining(", "));
         ErrorResponse resp = new ErrorResponse(ErrorCode.VALIDATION_ERROR.getCode(), msg);
         return ResponseEntity.badRequest().body(resp);
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    @ResponseBody
+    public ResponseEntity<ErrorResponse> handleAuthentication(AuthenticationException ex) {
+        ErrorResponse resp = new ErrorResponse(401, "未认证或认证已失效");
+        return ResponseEntity.status(401).body(resp);
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    @ResponseBody
+    public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
+        ErrorResponse resp = new ErrorResponse(403, "无权限访问该资源");
+        return ResponseEntity.status(403).body(resp);
     }
 
     @ExceptionHandler(Exception.class)

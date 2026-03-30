@@ -73,7 +73,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     @Override
     public boolean register(User user, String rawPassword, String roles) {
-        if (user == null || user.getUsername() == null) {
+        if (user == null || user.getUsername() == null || rawPassword == null || rawPassword.trim().isEmpty()) {
             return false;
         }
         User exists = userMapper.selectByUsername(user.getUsername());
@@ -82,7 +82,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         }
         user.setId(IdWorker.getId());
         user.setPassword(passwordEncoder.encode(rawPassword));
-        user.setRoles(roles);
+        if (user.getPointBalance() == null) {
+            user.setPointBalance(0);
+        }
+        String normalizedRole = (roles == null || roles.trim().isEmpty()) ? "ROLE_USER" : roles.trim();
+        if (!normalizedRole.startsWith("ROLE_")) {
+            normalizedRole = "ROLE_" + normalizedRole;
+        }
+        user.setRoles(normalizedRole);
         return super.save(user);
     }
 
