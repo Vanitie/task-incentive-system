@@ -46,6 +46,26 @@ public class UserRewardRecord {
     private Integer status;
 
     /**
+     * 消息唯一ID（用于消费幂等）
+     */
+    private String messageId;
+
+    /**
+     * 奖励ID（业务侧生成）
+     */
+    private Long rewardId;
+
+    /**
+     * 发放处理状态：0-INIT, 1-PROCESSING, 2-SUCCESS, 3-FAILED
+     */
+    private Integer grantStatus;
+
+    /**
+     * 发放失败错误信息
+     */
+    private String errorMsg;
+
+    /**
      * 奖励数值或数量
      */
     private Integer rewardValue;
@@ -55,6 +75,12 @@ public class UserRewardRecord {
      */
     @TableField(fill = FieldFill.INSERT)
     private Date createTime;
+
+    /**
+     * 更新时间
+     */
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private Date updateTime;
 
     /**
      * 用户名（展示字段，不入库）

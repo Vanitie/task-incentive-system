@@ -8,6 +8,7 @@ import com.whu.graduation.taskincentive.service.impl.TaskConfigServiceImpl;
 import com.whu.graduation.taskincentive.service.TaskStockService;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.*;
@@ -23,18 +24,21 @@ public class TaskConfigServiceImplTest {
 
     private TaskConfigServiceImpl service;
     private RedisTemplate<String, String> redisTemplate;
+    private StringRedisTemplate stringRedisTemplate;
     private ValueOperations<String, String> valueOps;
     private TaskStockService taskStockService;
     private TaskConfigMapper mapper;
 
     @BeforeEach
     public void setup() throws Exception {
-        service = new TaskConfigServiceImpl();
+        stringRedisTemplate = mock(StringRedisTemplate.class);
+        service = new TaskConfigServiceImpl(stringRedisTemplate);
 
         redisTemplate = mock(RedisTemplate.class);
         //noinspection unchecked
         valueOps = mock(ValueOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
 
         taskStockService = mock(TaskStockService.class);
 
@@ -105,7 +109,7 @@ public class TaskConfigServiceImplTest {
     @Test
     public void save_limited_createsStock_and_writesRedis() {
         TaskConfig tc = new TaskConfig();
-        tc.setTaskType("LIMITED");
+        tc.setStockType("LIMITED");
         tc.setTotalStock(10);
         // spy mapper insert to return 1
         when(mapper.insert(any())).thenAnswer(invocation -> {

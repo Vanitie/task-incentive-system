@@ -5,6 +5,7 @@ import com.whu.graduation.taskincentive.dao.entity.UserRewardRecord;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.Date;
 import java.util.List;
@@ -48,4 +49,43 @@ public interface UserRewardRecordMapper extends BaseMapper<UserRewardRecord> {
      */
     @Select("SELECT DATE(create_time) as the_date, COUNT(DISTINCT user_id) as cnt FROM user_reward_record WHERE create_time >= #{start} AND create_time < #{end} GROUP BY DATE(create_time) ORDER BY DATE(create_time) ASC")
     List<Map<String, Object>> countDistinctUserIdsGroupByDate(@Param("start") Date start, @Param("end") Date end);
+
+    @Select("SELECT * FROM user_reward_record WHERE message_id = #{messageId} LIMIT 1")
+    UserRewardRecord selectByMessageId(@Param("messageId") String messageId);
+
+    @Update("UPDATE user_reward_record SET grant_status = #{grantStatus}, error_msg = #{errorMsg}, update_time = NOW() WHERE message_id = #{messageId}")
+    int updateGrantStatusByMessageId(@Param("messageId") String messageId,
+                                     @Param("grantStatus") Integer grantStatus,
+                                     @Param("errorMsg") String errorMsg);
+
+    @Update("UPDATE user_reward_record SET grant_status = #{toStatus}, error_msg = #{errorMsg}, update_time = NOW() WHERE message_id = #{messageId} AND grant_status IN (#{fromStatusA}, #{fromStatusB})")
+    int updateGrantStatusByMessageIdWithFromStatuses(@Param("messageId") String messageId,
+                                                     @Param("fromStatusA") Integer fromStatusA,
+                                                     @Param("fromStatusB") Integer fromStatusB,
+                                                     @Param("toStatus") Integer toStatus,
+                                                     @Param("errorMsg") String errorMsg);
+
+    @Update("UPDATE user_reward_record SET grant_status = #{toStatus}, error_msg = #{errorMsg}, update_time = NOW() WHERE message_id = #{messageId} AND grant_status = #{fromStatus}")
+    int updateGrantStatusByMessageIdWithFromStatus(@Param("messageId") String messageId,
+                                                   @Param("fromStatus") Integer fromStatus,
+                                                   @Param("toStatus") Integer toStatus,
+                                                   @Param("errorMsg") String errorMsg);
+
+    @Select("SELECT grant_status AS grantStatus, COUNT(1) AS cnt FROM user_reward_record GROUP BY grant_status")
+    List<Map<String, Object>> countByGrantStatus();
+
+    @Select("SELECT COUNT(1) FROM user_reward_record WHERE (message_id IS NULL OR message_id = '')")
+    long countWithoutMessageId();
+
+    @Select("SELECT message_id AS messageId, COUNT(1) AS cnt FROM user_reward_record WHERE message_id IS NOT NULL AND message_id <> '' GROUP BY message_id HAVING COUNT(1) > 1 ORDER BY cnt DESC LIMIT #{limit}")
+    List<Map<String, Object>> findDuplicateMessageIds(@Param("limit") int limit);
+
+    @Select("SELECT * FROM user_reward_record WHERE grant_status IN (0,1,3) ORDER BY create_time ASC LIMIT #{limit}")
+    List<UserRewardRecord> findAbnormalRecords(@Param("limit") int limit);
+
+    @Select("SELECT user_id AS userId, COALESCE(SUM(reward_value), 0) AS expectedPoints " +
+            "FROM user_reward_record " +
+            "WHERE grant_status = 2 AND reward_type IN ('POINT', 'REWARD_POINT', 'OP_POINT', 'POINT_CONSUME') " +
+            "GROUP BY user_id")
+    List<Map<String, Object>> sumSuccessPointRewardsByUser();
 }

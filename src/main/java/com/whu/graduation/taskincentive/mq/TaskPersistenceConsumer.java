@@ -13,6 +13,7 @@ import com.alibaba.fastjson.JSONObject;
 import org.springframework.data.redis.core.RedisTemplate;
 
 import java.util.concurrent.TimeUnit;
+import java.util.Map;
 
 /**
  * 任务进度落库消费者
@@ -85,7 +86,8 @@ public class TaskPersistenceConsumer {
             log.error("failed to parse payload into UserTaskInstance, payload={}", payload, e);
             // 解析失败 => 无法处理此消息；发送到 DLQ 并 ack，避免成为毒丸消息
             try {
-                errorPublisher.publishToDlq("task-persist-topic", message, messageId, e.getMessage());
+                errorPublisher.publishToDlq("task-persist-topic", message, messageId, e.getMessage(),
+                        Map.of("source", "TaskPersistenceConsumer", "exceptionClass", e.getClass().getName(), "retryCount", 0));
             } catch (Exception ignored) {}
             acknowledgment.acknowledge();
             return;
@@ -122,7 +124,8 @@ public class TaskPersistenceConsumer {
             log.error("持久化失败 for payload={}, messageId={}", payload, messageId, e);
             // 处理失败：发送到 DLQ 并抛出异常，让 Kafka 重试或根据策略处理
             try {
-                errorPublisher.publishToDlq("task-persist-topic", message, messageId, e.getMessage());
+                errorPublisher.publishToDlq("task-persist-topic", message, messageId, e.getMessage(),
+                        Map.of("source", "TaskPersistenceConsumer", "exceptionClass", e.getClass().getName(), "retryCount", 1));
             } catch (Exception ignored) {}
             throw e; // 不 ack -> Kafka 将重试
         }

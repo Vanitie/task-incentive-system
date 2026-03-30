@@ -7,6 +7,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 风控决策落库生产者
@@ -22,13 +23,15 @@ public class RiskDecisionPersistProducer {
     }
 
     public void send(String userKey, Object payload) {
+        String messageId = UUID.randomUUID().toString();
         try {
             JSONObject wrapper = new JSONObject();
-            wrapper.put("messageId", UUID.randomUUID().toString());
+            wrapper.put("messageId", messageId);
             wrapper.put("payload", payload);
-            kafkaTemplate.send(CacheKeys.RISK_DECISION_PERSIST_TOPIC, userKey, wrapper.toJSONString());
+            kafkaTemplate.send(CacheKeys.RISK_DECISION_PERSIST_TOPIC, userKey, wrapper.toJSONString()).get(5, TimeUnit.SECONDS);
         } catch (Exception e) {
-            log.warn("risk decision persist send failed, userKey={}, err={}", userKey, e.getMessage());
+            log.error("risk decision persist send failed, userKey={}, messageId={}", userKey, messageId, e);
+            throw new IllegalStateException("failed to send risk decision persist message", e);
         }
     }
 }

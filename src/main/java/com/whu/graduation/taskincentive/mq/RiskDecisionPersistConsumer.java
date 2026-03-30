@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.data.redis.core.RedisTemplate;
 
 import java.util.concurrent.TimeUnit;
+import java.util.Map;
 
 /**
  * 风控决策落库消费者
@@ -79,7 +80,8 @@ public class RiskDecisionPersistConsumer {
         } catch (Exception e) {
             log.error("failed to parse risk decision persist payload, payload={}", payload, e);
             try {
-                errorPublisher.publishToDlq(CacheKeys.RISK_DECISION_PERSIST_TOPIC, message, messageId, e.getMessage());
+                errorPublisher.publishToDlq(CacheKeys.RISK_DECISION_PERSIST_TOPIC, message, messageId, e.getMessage(),
+                        Map.of("source", "RiskDecisionPersistConsumer", "exceptionClass", e.getClass().getName(), "retryCount", 0));
             } catch (Exception ignored) {}
             acknowledgment.acknowledge();
             return;
@@ -111,7 +113,8 @@ public class RiskDecisionPersistConsumer {
         } catch (Exception e) {
             log.error("risk decision persist failed, payload={}, messageId={}", payload, messageId, e);
             try {
-                errorPublisher.publishToDlq(CacheKeys.RISK_DECISION_PERSIST_TOPIC, message, messageId, e.getMessage());
+                errorPublisher.publishToDlq(CacheKeys.RISK_DECISION_PERSIST_TOPIC, message, messageId, e.getMessage(),
+                        Map.of("source", "RiskDecisionPersistConsumer", "exceptionClass", e.getClass().getName(), "retryCount", 1));
             } catch (Exception ignored) {}
             throw e;
         }

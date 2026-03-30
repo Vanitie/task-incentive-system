@@ -10,6 +10,8 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.Collections;
+
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -27,7 +29,7 @@ public class TaskStockControllerTest {
 
     @Test
     public void get_shouldReturnOk() throws Exception {
-        when(taskStockService.getById(org.mockito.Mockito.anyLong())).thenReturn(new TaskStock());
+        when(taskStockService.getById(org.mockito.Mockito.anyLong())).thenReturn(Collections.singletonList(new TaskStock()));
         mockMvc.perform(get("/api/task-stock/1").contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk());
     }

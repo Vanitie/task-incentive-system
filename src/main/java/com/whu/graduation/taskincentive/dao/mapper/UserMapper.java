@@ -27,6 +27,10 @@ public interface UserMapper extends BaseMapper<User> {
     int updateUserPoints(@Param("userId") Long userId,
                          @Param("points") Integer points);
 
+    @Update("UPDATE `user` SET point_balance = #{pointBalance} WHERE id = #{userId}")
+    int setUserPointBalance(@Param("userId") Long userId,
+                            @Param("pointBalance") Integer pointBalance);
+
     /**
      * 统计用户总数
      */

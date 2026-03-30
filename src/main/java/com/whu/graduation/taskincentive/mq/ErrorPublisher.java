@@ -6,6 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
+import java.util.Map;
+
 @Slf4j
 @Component
 public class ErrorPublisher {
@@ -28,6 +30,10 @@ public class ErrorPublisher {
     }
 
     public void publishToDlq(String originalTopic, String message, String messageId, String error) {
+        publishToDlq(originalTopic, message, messageId, error, null);
+    }
+
+    public void publishToDlq(String originalTopic, String message, String messageId, String error, Map<String, Object> meta) {
         try {
             JSONObject wrapper = new JSONObject();
             wrapper.put("origTopic", originalTopic);
@@ -35,6 +41,9 @@ public class ErrorPublisher {
             wrapper.put("messageId", messageId);
             wrapper.put("error", error);
             wrapper.put("ts", System.currentTimeMillis());
+            if (meta != null && !meta.isEmpty()) {
+                wrapper.put("meta", meta);
+            }
             kafkaTemplate.send(dlqTopic, wrapper.toJSONString());
             log.warn("message published to DLQ topic={}, origTopic={}, messageId={}", dlqTopic, originalTopic, messageId);
         } catch (Exception e) {

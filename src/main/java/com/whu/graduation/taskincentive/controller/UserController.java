@@ -2,9 +2,11 @@ package com.whu.graduation.taskincentive.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.User;
+import com.whu.graduation.taskincentive.dao.entity.UserRewardRecord;
 import com.whu.graduation.taskincentive.dto.ApiResponse;
 import com.whu.graduation.taskincentive.dto.ChartData;
 import com.whu.graduation.taskincentive.dto.PageResult;
+import com.whu.graduation.taskincentive.service.UserRewardRecordService;
 import com.whu.graduation.taskincentive.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -13,6 +15,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 
 /**
@@ -24,6 +27,9 @@ public class UserController {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private UserRewardRecordService userRewardRecordService;
 
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
@@ -102,7 +108,21 @@ public class UserController {
         if (userId == null || points == null) {
             return ApiResponse.error(400, "userId and points required");
         }
-        return ApiResponse.success(userService.updateUserPoints(userId, points));
+        boolean ok = userService.updateUserPoints(userId, points);
+        if (ok) {
+            // 运营侧积分变动纳入统一奖励日志，便于后续对账与重放。
+            UserRewardRecord opLog = UserRewardRecord.builder()
+                    .userId(userId)
+                    .taskId(0L)
+                    .rewardType("OP_POINT")
+                    .status(0)
+                    .rewardValue(points)
+                    .grantStatus(2)
+                    .createTime(new Date())
+                    .build();
+            userRewardRecordService.save(opLog);
+        }
+        return ApiResponse.success(ok);
     }
 
     // helper to compute percent string

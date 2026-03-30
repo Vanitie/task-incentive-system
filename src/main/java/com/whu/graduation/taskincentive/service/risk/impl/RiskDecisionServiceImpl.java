@@ -34,6 +34,8 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class RiskDecisionServiceImpl implements RiskDecisionService {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(RiskDecisionServiceImpl.class);
+
     private final RiskDecisionEngine decisionEngine;
     private final RiskMetricStore metricStore;
     private final RiskCacheStore cacheStore;
@@ -116,7 +118,7 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
         long latency = System.currentTimeMillis() - start;
         RiskDecisionResponse response = buildResponseOnly(traceId, action, reason, hitRules, riskScore, degradeRatio);
 
-        RiskDecisionLog log = RiskDecisionLog.builder()
+        RiskDecisionLog decisionLog = RiskDecisionLog.builder()
                 .id(IdWorker.getId())
                 .requestId(request.getRequestId())
                 .eventId(request.getEventId())
@@ -145,12 +147,15 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
         }
         try {
             RiskDecisionPersistMessage msg = RiskDecisionPersistMessage.builder()
-                    .decisionLog(log)
+                    .decisionLog(decisionLog)
                     .freezeRecord(freeze)
                     .build();
             String userKey = request.getUserId() == null ? "0" : String.valueOf(request.getUserId());
             persistProducer.send(userKey, msg);
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            // 风控主流程仍返回决策结果，但记录落库消息发送失败需要留痕，供对账补偿。
+            log.error("risk decision persist message send failed, requestId={}, userId={}, taskId={}",
+                    request.getRequestId(), request.getUserId(), request.getTaskId(), e);
         }
         return response;
     }

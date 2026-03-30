@@ -11,6 +11,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 用户奖励记录控制器
@@ -98,5 +99,32 @@ public class UserRewardController {
                 .items(p.getRecords())
                 .build();
         return ApiResponse.success(pr);
+    }
+
+    /**
+     * 奖励发放链路对账摘要（管理员）
+     */
+    @GetMapping("/reconcile/summary")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<Map<String, Object>> reconcileSummary(@RequestParam(defaultValue = "20") int sampleLimit) {
+        return ApiResponse.success(recordService.reconcileSummary(sampleLimit));
+    }
+
+    /**
+     * 积分日志重放预览（仅查看差异，不落库）
+     */
+    @GetMapping("/replay/points/preview")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<Map<String, Object>> previewPointReplay(@RequestParam(defaultValue = "20") int sampleLimit) {
+        return ApiResponse.success(recordService.previewPointReplayDiff(sampleLimit));
+    }
+
+    /**
+     * 执行积分日志重放补偿（按成功奖励日志覆盖用户积分余额）
+     */
+    @PostMapping("/replay/points/execute")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<Map<String, Object>> executePointReplay() {
+        return ApiResponse.success(recordService.executePointReplayCompensation());
     }
 }

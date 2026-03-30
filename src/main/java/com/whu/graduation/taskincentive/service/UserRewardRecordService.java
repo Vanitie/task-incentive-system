@@ -2,8 +2,10 @@ package com.whu.graduation.taskincentive.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.UserRewardRecord;
+import com.whu.graduation.taskincentive.dto.Reward;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 用户奖励记录服务接口
@@ -71,4 +73,20 @@ public interface UserRewardRecordService {
      * @return 分页结果
      */
     Page<UserRewardRecord> listByConditions(Page<UserRewardRecord> page, Long userId, Long taskId, String rewardType, Integer status);
+
+    UserRewardRecord selectByMessageId(String messageId);
+
+    UserRewardRecord initRecordIfAbsent(String messageId, Long userId, Reward reward);
+
+    boolean markProcessing(String messageId);
+
+    boolean markSuccess(String messageId);
+
+    boolean markFailedNewTx(String messageId, String errorMsg);
+
+    Map<String, Object> reconcileSummary(int sampleLimit);
+
+    Map<String, Object> previewPointReplayDiff(int sampleLimit);
+
+    Map<String, Object> executePointReplayCompensation();
 }
