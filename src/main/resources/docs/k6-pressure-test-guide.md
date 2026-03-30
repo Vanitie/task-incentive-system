@@ -5,7 +5,7 @@
 ## 1. 当前支持的压测功能
 
 - 单接口恒定速率压测（`baseline`）
-  - 可压同步或异步接口（由 `TARGET_MODE` 控制）
+  - 可压同步、异步或空接口（由 `TARGET_MODE` 控制）
   - 使用 `constant-arrival-rate`，以目标 QPS 持续打流
 - 同步/异步并行对比压测（`compare`）
   - 同时压 `process-event-async` 和 `process-event-sync`
@@ -18,6 +18,7 @@
 
 - 异步接口：`/api/engine/process-event-async`
 - 同步接口：`/api/engine/process-event-sync`
+- 空接口：`/api/benchmark/noop`（仅压测接入层开销）
 
 脚本会按模式自动路由请求：
 
@@ -56,6 +57,7 @@
 - `TARGET_MODE`
   - `async`（默认）
   - `sync`
+  - `noop`
 - `RATE`
   - `baseline/compare` 总 QPS，默认 `200`
 - `DURATION`
@@ -97,7 +99,7 @@
 
 请求会带标签，便于分场景观察：
 
-- `endpoint_type`: `sync` / `async`
+- `endpoint_type`: `sync` / `async` / `noop`
 - `scenario_name`: 具体场景名（如 `compare_async`）
 
 ## 6. 典型运行方式
@@ -137,6 +139,18 @@ $env:TARGET_MODE="async"
 $env:START_RATE="1000"
 $env:PRE_VUS="1500"
 $env:MAX_VUS="20000"
+k6 run .\engine_process_event_k6.js
+```
+
+### 6.4 空接口基准压测（框架开销基线）
+
+```powershell
+$env:BASE_URL="http://<后端IP>:8080"
+$env:BEARER_TOKEN="<token>"
+$env:TEST_MODE="baseline"
+$env:TARGET_MODE="noop"
+$env:RATE="5000"
+$env:DURATION="3m"
 k6 run .\engine_process_event_k6.js
 ```
 

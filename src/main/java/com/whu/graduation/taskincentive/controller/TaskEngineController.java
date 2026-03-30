@@ -43,7 +43,7 @@ public class TaskEngineController {
     private RedisTemplate<String, String> redisTemplate;
 
     @Autowired
-    @Qualifier("dbWriteExecutor")
+    @Qualifier("taskEngineEventExecutor")
     private ExecutorService executorService;
 
     /**

@@ -8,12 +8,12 @@ import exec from 'k6/execution';
 // 3) TEST_MODE=max       -> 逐级爬坡找极限QPS
 
 const TEST_MODE = __ENV.TEST_MODE || 'baseline';
-const TARGET_MODE = __ENV.TARGET_MODE || 'async'; // async|sync
+const TARGET_MODE = __ENV.TARGET_MODE || 'async'; // async|sync|noop
 const RATE = Number(__ENV.RATE || 200);
 const PRE_VUS = Number(__ENV.PRE_VUS || 800);
 const MAX_VUS = Number(__ENV.MAX_VUS || 12000);
 const DURATION = __ENV.DURATION || '3m';
-const MAX_STAGES_JSON = __ENV.MAX_STAGES_JSON || '[{"target":1000,"duration":"1m"},{"target":2000,"duration":"1m"},{"target":3000,"duration":"1m"},{"target":4000,"duration":"1m"},{"target":5000,"duration":"1m"},{"target":6000,"duration":"1m"},{"target":7000,"duration":"1m"},{"target":8000,"duration":"1m"},{"target":9000,"duration":"1m"},{"target":10000,"duration":"1m"}]';
+const MAX_STAGES_JSON = __ENV.MAX_STAGES_JSON || '[{"target":1000,"duration":"1m"},{"target":2000,"duration":"1m"},{"target":3000,"duration":"1m"},{"target":4000,"duration":"1m"},{"target":5000,"duration":"1m"}]';
 
 function parseStages() {
   try {
@@ -87,6 +87,7 @@ const EVENT_TYPES = ['USER_LEARN', 'USER_SIGN'];
 const DUP_POOL = Array.from({ length: 200 }, (_, i) => `dup-${i + 1}`);
 const ASYNC_ENDPOINT = '/api/engine/process-event-async';
 const SYNC_ENDPOINT = '/api/engine/process-event-sync';
+const NOOP_ENDPOINT = '/api/benchmark/noop';
 const RUN_ID = __ENV.RUN_ID || `${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
 
 function pick(arr) {
@@ -97,13 +98,20 @@ function endpointTypeForScenario() {
   if (TEST_MODE === 'compare') {
     return exec.scenario.name && exec.scenario.name.indexOf('sync') >= 0 ? 'sync' : 'async';
   }
+  if (TARGET_MODE === 'noop') {
+    return 'noop';
+  }
   return TARGET_MODE === 'sync' ? 'sync' : 'async';
 }
 
 export default function () {
   const userId = USER_IDS[(__VU + __ITER) % USER_IDS.length];
   const endpointType = endpointTypeForScenario();
-  const endpoint = endpointType === 'sync' ? SYNC_ENDPOINT : ASYNC_ENDPOINT;
+  const endpoint = endpointType === 'sync'
+    ? SYNC_ENDPOINT
+    : endpointType === 'noop'
+      ? NOOP_ENDPOINT
+      : ASYNC_ENDPOINT;
   const useDuplicate = Math.random() < DUPLICATE_RATE;
   const dropMessageId = Math.random() < NO_MSG_ID_RATE;
   const uniqueId = `mid-${Date.now()}-${__VU}-${__ITER}-${Math.floor(Math.random() * 100000)}`;
@@ -130,10 +138,10 @@ export default function () {
     headers.Authorization = `Bearer ${BEARER_TOKEN}`;
   }
 
-  const res = http.post(`${BASE_URL}${endpoint}`, JSON.stringify(payload), {
-    headers,
-    tags: { endpoint_type: endpointType, scenario_name: exec.scenario.name || 'na' },
-  });
+  const reqOptions = { headers, tags: { endpoint_type: endpointType, scenario_name: exec.scenario.name || 'na' } };
+  const res = endpointType === 'noop'
+    ? http.get(`${BASE_URL}${endpoint}`, reqOptions)
+    : http.post(`${BASE_URL}${endpoint}`, JSON.stringify(payload), reqOptions);
   const ok = endpointType === 'async' ? [200, 202, 503].includes(res.status) : [200].includes(res.status);
   check(res, {
     'status_ok': () => ok,

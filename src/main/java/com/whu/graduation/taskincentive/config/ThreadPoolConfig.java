@@ -1,5 +1,6 @@
 package com.whu.graduation.taskincentive.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -9,18 +10,34 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Configuration
 public class ThreadPoolConfig {
 
-    @Bean("dbWriteExecutor")
-    public ExecutorService dbWriteExecutor() {
+    @Value("${app.executors.task-engine-event.core-pool-size:32}")
+    private int corePoolSize;
+
+    @Value("${app.executors.task-engine-event.max-pool-size:128}")
+    private int maxPoolSize;
+
+    @Value("${app.executors.task-engine-event.queue-capacity:20000}")
+    private int queueCapacity;
+
+    @Value("${app.executors.task-engine-event.keep-alive-seconds:60}")
+    private int keepAliveSeconds;
+
+    @Value("${app.executors.task-engine-event.thread-name-prefix:task-engine-event-}")
+    private String threadNamePrefix;
+
+    @Bean({"taskEngineEventExecutor", "dbWriteExecutor"})
+    public ExecutorService taskEngineEventExecutor() {
+        int normalizedMaxPoolSize = Math.max(maxPoolSize, corePoolSize);
         return new ThreadPoolExecutor(
-                10,                     // 核心线程数
-                50,                     // 最大线程数
-                60, TimeUnit.SECONDS,   // 空闲线程存活时间
-                new LinkedBlockingQueue<>(1000), // 队列容量
-                new ThreadFactory() {   // 自定义线程名
+                corePoolSize,
+                normalizedMaxPoolSize,
+                keepAliveSeconds, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(queueCapacity),
+                new ThreadFactory() {
                     private final AtomicInteger count = new AtomicInteger(1);
                     @Override
                     public Thread newThread(Runnable r) {
-                        return new Thread(r, "TaskEngine-DBWriter-" + count.getAndIncrement());
+                        return new Thread(r, threadNamePrefix + count.getAndIncrement());
                     }
                 },
                 new ThreadPoolExecutor.AbortPolicy()

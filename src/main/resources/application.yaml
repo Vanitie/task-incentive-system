@@ -27,12 +27,28 @@ spring:
 
 server:
   port: 8080
+  connection-timeout: 3s
+  tomcat:
+    threads:
+      max: 300
+      min-spare: 30
+    max-connections: 8192
+    accept-count: 1000
+    keep-alive-timeout: 20s
+    max-keep-alive-requests: 1000
 
 app:
   security:
     admin:
       username: admin
       password: admin123
+  executors:
+    task-engine-event:
+      core-pool-size: 32
+      max-pool-size: 128
+      queue-capacity: 20000
+      keep-alive-seconds: 60
+      thread-name-prefix: task-engine-event-
   dlq:
     topic: dlq-topic
     custom-js: /swagger-ui-request-interceptor.js

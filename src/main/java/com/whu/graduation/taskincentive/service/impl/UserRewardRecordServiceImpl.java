@@ -4,8 +4,12 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
+import com.whu.graduation.taskincentive.dao.entity.User;
 import com.whu.graduation.taskincentive.dao.entity.UserRewardRecord;
+import com.whu.graduation.taskincentive.dao.mapper.UserMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserRewardRecordMapper;
+import com.whu.graduation.taskincentive.service.TaskConfigService;
 import com.whu.graduation.taskincentive.service.UserRewardRecordService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,12 +18,13 @@ import org.springframework.stereotype.Service;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.Date;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 用户奖励记录服务实现
@@ -31,6 +36,8 @@ public class UserRewardRecordServiceImpl extends ServiceImpl<UserRewardRecordMap
         implements UserRewardRecordService {
 
     private final UserRewardRecordMapper userRewardRecordMapper;
+    private final UserMapper userMapper;
+    private final TaskConfigService taskConfigService;
 
     @Override
     public boolean save(UserRewardRecord record) {
@@ -137,6 +144,38 @@ public class UserRewardRecordServiceImpl extends ServiceImpl<UserRewardRecordMap
         if (rewardType != null && !rewardType.isEmpty()) wrapper.eq("reward_type", rewardType);
         if (status != null) wrapper.eq("status", status);
         wrapper.orderByDesc("create_time");
-        return this.baseMapper.selectPage(page, wrapper);
+        Page<UserRewardRecord> result = this.baseMapper.selectPage(page, wrapper);
+
+        List<UserRewardRecord> records = result.getRecords();
+        if (records == null || records.isEmpty()) {
+            return result;
+        }
+
+        // 批量查询用户名，避免 N+1
+        Set<Long> userIds = records.stream()
+                .map(UserRewardRecord::getUserId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, String> userNameMap = Collections.emptyMap();
+        if (!userIds.isEmpty()) {
+            userNameMap = userMapper.selectBatchIds(userIds).stream()
+                    .collect(Collectors.toMap(User::getId, User::getUsername, (a, b) -> a));
+        }
+
+        // 批量查询任务名，复用任务配置服务的批量接口
+        Set<Long> taskIds = records.stream()
+                .map(UserRewardRecord::getTaskId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, TaskConfig> taskConfigMap = taskIds.isEmpty()
+                ? Collections.emptyMap()
+                : taskConfigService.getTaskConfigsByIds(taskIds);
+
+        for (UserRewardRecord record : records) {
+            record.setUserName(userNameMap.get(record.getUserId()));
+            TaskConfig taskConfig = taskConfigMap.get(record.getTaskId());
+            record.setTaskName(taskConfig == null ? null : taskConfig.getTaskName());
+        }
+        return result;
     }
 }

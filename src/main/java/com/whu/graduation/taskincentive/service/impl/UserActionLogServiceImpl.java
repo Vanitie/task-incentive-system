@@ -3,16 +3,22 @@ package com.whu.graduation.taskincentive.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.whu.graduation.taskincentive.dao.entity.User;
 import com.whu.graduation.taskincentive.dao.entity.UserActionLog;
+import com.whu.graduation.taskincentive.dao.mapper.UserMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserActionLogMapper;
 import com.whu.graduation.taskincentive.service.UserActionLogService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 用户行为日志服务实现
@@ -24,6 +30,7 @@ public class UserActionLogServiceImpl extends ServiceImpl<UserActionLogMapper, U
         implements UserActionLogService {
 
     private final UserActionLogMapper userActionLogMapper;
+    private final UserMapper userMapper;
 
     @Override
     public boolean save(UserActionLog log) {
@@ -91,6 +98,27 @@ public class UserActionLogServiceImpl extends ServiceImpl<UserActionLogMapper, U
         if (startTime != null && !startTime.isEmpty()) wrapper.ge("create_time", startTime);
         if (endTime != null && !endTime.isEmpty()) wrapper.le("create_time", endTime);
         wrapper.orderByDesc("create_time");
-        return this.baseMapper.selectPage(page, wrapper);
+        Page<UserActionLog> result = this.baseMapper.selectPage(page, wrapper);
+
+        List<UserActionLog> records = result.getRecords();
+        if (records == null || records.isEmpty()) {
+            return result;
+        }
+
+        // 批量查询用户名，避免 N+1
+        Set<Long> userIds = records.stream()
+                .map(UserActionLog::getUserId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, String> userNameMap = Collections.emptyMap();
+        if (!userIds.isEmpty()) {
+            userNameMap = userMapper.selectBatchIds(userIds).stream()
+                    .collect(Collectors.toMap(User::getId, User::getUsername, (a, b) -> a));
+        }
+
+        for (UserActionLog record : records) {
+            record.setUserName(userNameMap.get(record.getUserId()));
+        }
+        return result;
     }
 }

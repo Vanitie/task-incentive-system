@@ -45,4 +45,10 @@ public class UserActionLog {
      */
     @TableField(fill = FieldFill.INSERT)
     private Date createTime;
+
+    /**
+     * 用户名（展示字段，不入库）
+     */
+    @TableField(exist = false)
+    private String userName;
 }
