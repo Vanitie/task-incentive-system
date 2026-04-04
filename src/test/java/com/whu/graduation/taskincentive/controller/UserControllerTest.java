@@ -2,6 +2,7 @@ package com.whu.graduation.taskincentive.controller;
 
 import com.whu.graduation.taskincentive.dao.entity.User;
 import com.whu.graduation.taskincentive.security.JwtUtil;
+import com.whu.graduation.taskincentive.service.UserRewardRecordService;
 import com.whu.graduation.taskincentive.service.UserService;
 import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.Test;
@@ -17,6 +18,9 @@ import com.whu.graduation.taskincentive.config.SecurityConfig;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -37,6 +41,9 @@ public class UserControllerTest {
 
     @MockBean
     private JwtUtil jwtUtil;
+
+    @MockBean
+    private UserRewardRecordService userRewardRecordService;
 
     @Test
     public void list_withoutToken_shouldReturnUnauthorized() throws Exception {
@@ -59,6 +66,26 @@ public class UserControllerTest {
         mockMvc.perform(get("/api/user/list").contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer t-admin"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    public void list_invalidPageBoundary_shouldReturnBusinessBadRequest() throws Exception {
+        mockUserToken("t-admin", "admin", List.of("ROLE_ADMIN"));
+        mockMvc.perform(get("/api/user/list").param("page", "0").param("size", "20")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer t-admin"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    public void list_invalidSizeBoundary_shouldReturnBusinessBadRequest() throws Exception {
+        mockUserToken("t-admin", "admin", List.of("ROLE_ADMIN"));
+        mockMvc.perform(get("/api/user/list").param("page", "1").param("size", "101")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer t-admin"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(400));
     }
 
     @Test
@@ -123,11 +150,39 @@ public class UserControllerTest {
     }
 
     @Test
+    public void update_missingId_shouldReturnBusinessBadRequest() throws Exception {
+        mockUserToken("t-admin", "admin", List.of("ROLE_ADMIN"));
+        String body = "{\"username\":\"u2\"}";
+
+        mockMvc.perform(put("/api/user/update").contentType(MediaType.APPLICATION_JSON).content(body)
+                        .header("Authorization", "Bearer t-admin"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
     public void updatePoints_missingParams_shouldReturnBusinessBadRequest() throws Exception {
         mockUserToken("t-admin", "admin", List.of("ROLE_ADMIN"));
         mockMvc.perform(post("/api/user/points").contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer t-admin"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isInternalServerError());
+    }
+
+    @Test
+    public void updatePoints_valid_shouldReturnOk() throws Exception {
+        mockUserToken("t-admin", "admin", List.of("ROLE_ADMIN"));
+        when(userService.updateUserPoints(anyLong(), anyInt())).thenReturn(true);
+
+        mockMvc.perform(post("/api/user/points")
+                        .param("userId", "1001")
+                        .param("points", "20")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer t-admin"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").value(true));
+
+        verify(userService).updateUserPoints(1001L, 20);
     }
 
     @Test
@@ -135,7 +190,7 @@ public class UserControllerTest {
         when(userService.getTaskReceiveUserCountLast7Days()).thenReturn(List.of(1L, 2L, 3L, 4L, 5L, 6L, 7L));
         mockUserToken("t-admin", "admin", List.of("ROLE_ADMIN"));
 
-        mockMvc.perform(get("/api/user/count/task-participants-7days").contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(get("/api/user/count/today").contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer t-admin"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0));

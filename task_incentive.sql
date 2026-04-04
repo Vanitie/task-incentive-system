@@ -11,7 +11,7 @@
  Target Server Version : 80045 (8.0.45)
  File Encoding         : 65001
 
- Date: 22/03/2026 21:21:36
+ Date: 01/04/2026 17:03:38
 */
 
 SET NAMES utf8mb4;
@@ -71,7 +71,7 @@ CREATE TABLE `risk_blacklist`  (
 DROP TABLE IF EXISTS `risk_decision_log`;
 CREATE TABLE `risk_decision_log`  (
   `id` bigint NOT NULL COMMENT '日志ID',
-  `request_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '请求ID',
+  `request_id` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '请求ID',
   `event_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '事件ID',
   `user_id` bigint NULL DEFAULT NULL COMMENT '用户ID',
   `task_id` bigint NULL DEFAULT NULL COMMENT '任务ID',
@@ -91,6 +91,7 @@ CREATE TABLE `risk_decision_log`  (
 DROP TABLE IF EXISTS `risk_quota`;
 CREATE TABLE `risk_quota`  (
   `id` bigint NOT NULL COMMENT '配额ID',
+  `quota_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '配额名称',
   `scope_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '作用域类型',
   `scope_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '作用域ID',
   `period_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '周期类型',
@@ -100,7 +101,8 @@ CREATE TABLE `risk_quota`  (
   `created_at` datetime NOT NULL COMMENT '创建时间',
   `resource_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'ALL' COMMENT '资源类型（POINT/BADGE/PHYSICAL/ALL 等)',
   `resource_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'ALL' COMMENT '资源ID（具体奖品/徽章ID；无区分时用 ALL）',
-  PRIMARY KEY (`id`) USING BTREE
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `idx_quota_name`(`quota_name` ASC) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '风控配额' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -235,11 +237,19 @@ CREATE TABLE `user_reward_record`  (
   `task_id` bigint NOT NULL COMMENT '任务ID',
   `reward_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '奖励类型：积分 REWARD_POINT / 徽章 REWARD_BADGE / 实物 REWARD_PHYSICAL',
   `status` tinyint NULL DEFAULT 1 COMMENT '奖励状态（仅实物奖励有效）：未领取 0 / 已领取 1',
+  `message_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'MQ消息唯一标识（用于幂等）',
+  `reward_id` bigint NULL DEFAULT NULL COMMENT '奖励业务ID',
+  `grant_status` tinyint NULL DEFAULT 2 COMMENT '发放状态：0-初始化，1-处理中，2-成功，3-失败',
+  `error_msg` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '发放失败原因',
   `reward_value` int NOT NULL COMMENT '奖励数值或数量',
   `create_time` datetime NOT NULL COMMENT '发放时间',
+  `update_time` datetime NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `uk_user_reward_record_message_id`(`message_id` ASC) USING BTREE,
   INDEX `idx_user_id`(`user_id` ASC) USING BTREE,
-  INDEX `idx_task_id`(`task_id` ASC) USING BTREE
+  INDEX `idx_task_id`(`task_id` ASC) USING BTREE,
+  INDEX `idx_user_reward_record_grant_status`(`grant_status` ASC) USING BTREE,
+  INDEX `idx_user_reward_record_reward_id`(`reward_id` ASC) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户奖励记录表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -249,7 +259,9 @@ DROP TABLE IF EXISTS `user_task_instance`;
 CREATE TABLE `user_task_instance`  (
   `id` bigint NOT NULL COMMENT '任务实例ID',
   `user_id` bigint NOT NULL COMMENT '用户ID',
+  `user_name` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '用户名',
   `task_id` bigint NOT NULL COMMENT '任务ID',
+  `task_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '任务名',
   `progress` int NOT NULL DEFAULT 0 COMMENT '当前完成进度',
   `status` tinyint NOT NULL DEFAULT 0 COMMENT '0未完成/1完成',
   `version` int NOT NULL DEFAULT 0 COMMENT '乐观锁版本号',
@@ -259,7 +271,8 @@ CREATE TABLE `user_task_instance`  (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `idx_user_task`(`user_id` ASC, `task_id` ASC) USING BTREE,
   INDEX `idx_status`(`status` ASC) USING BTREE,
-  INDEX `idx_task_id`(`task_id` ASC) USING BTREE
+  INDEX `idx_task_id`(`task_id` ASC) USING BTREE,
+  INDEX `idx_user_task_name`(`user_name` ASC, `task_name` ASC) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户任务实例表' ROW_FORMAT = DYNAMIC;
 
 SET FOREIGN_KEY_CHECKS = 1;
