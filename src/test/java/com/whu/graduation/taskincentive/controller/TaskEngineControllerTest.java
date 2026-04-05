@@ -2,6 +2,7 @@ package com.whu.graduation.taskincentive.controller;
 
 import com.whu.graduation.taskincentive.engine.TaskEngine;
 import com.whu.graduation.taskincentive.event.UserEvent;
+import com.whu.graduation.taskincentive.testutil.ReflectionTestUtils;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +18,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.lang.reflect.Method;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -181,5 +183,41 @@ public class TaskEngineControllerTest {
                 .andExpect(status().isAccepted());
 
         verify(taskEngine, times(1)).processEvent(any(UserEvent.class));
+    }
+
+    @Test
+    public void privateHelpers_shouldCoverResolveNormalizeAndDedupBranches() throws Exception {
+        TaskEngineController plain = new TaskEngineController();
+        ReflectionTestUtils.setFieldRecursively(plain, "redisTemplate", redisTemplate);
+
+        Method resolveRequestId = TaskEngineController.class.getDeclaredMethod("resolveRequestId", TaskEngineController.ProcessEventRequest.class);
+        resolveRequestId.setAccessible(true);
+        Method normalizeRequestId = TaskEngineController.class.getDeclaredMethod("normalizeRequestId", String.class);
+        normalizeRequestId.setAccessible(true);
+        Method isDuplicateMessage = TaskEngineController.class.getDeclaredMethod("isDuplicateMessage", String.class);
+        isDuplicateMessage.setAccessible(true);
+
+        TaskEngineController.ProcessEventRequest nullReq = null;
+        String generated = (String) resolveRequestId.invoke(plain, nullReq);
+        assertTrue(generated.startsWith("req-"));
+
+        TaskEngineController.ProcessEventRequest blankReq = new TaskEngineController.ProcessEventRequest();
+        blankReq.setRequestId("   ");
+        String generatedFromBlank = (String) resolveRequestId.invoke(plain, blankReq);
+        assertTrue(generatedFromBlank.startsWith("req-"));
+
+        String shortId = "rid-123";
+        assertEquals(shortId, normalizeRequestId.invoke(plain, shortId));
+
+        String longId = "x".repeat(80);
+        String normalized = (String) normalizeRequestId.invoke(plain, longId);
+        assertTrue(normalized.startsWith("reqh-"));
+
+        assertEquals(false, isDuplicateMessage.invoke(plain, new Object[]{null}));
+        assertEquals(false, isDuplicateMessage.invoke(plain, ""));
+
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.setIfAbsent(anyString(), anyString(), any(Long.class), any(TimeUnit.class))).thenReturn(false);
+        assertEquals(true, isDuplicateMessage.invoke(plain, "dup-private"));
     }
 }

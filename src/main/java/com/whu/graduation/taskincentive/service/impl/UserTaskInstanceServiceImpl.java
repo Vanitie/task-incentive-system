@@ -118,7 +118,8 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
     public boolean deleteById(Long id) {
         // 先读取待删除实例以获知 userId/taskId
         UserTaskInstance inst = super.getById(id);
-        boolean removed = super.removeById(id);
+        // 直接走 mapper，避免在无 MyBatis 元数据上下文的单测中触发 TableInfo 依赖
+        boolean removed = this.baseMapper.deleteById(id) > 0;
         if (!removed) return false;
 
         // 若该实例为已接取状态，事务提交后从用户集合移除并从缓存删除对应实例

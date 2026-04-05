@@ -2,6 +2,8 @@ package com.whu.graduation.taskincentive.service.impl;
 
 import com.whu.graduation.taskincentive.dao.mapper.UserMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserTaskInstanceMapper;
+import com.whu.graduation.taskincentive.dao.entity.User;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -9,7 +11,17 @@ import org.mockito.Mockito;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class UserServiceImplTest {
@@ -23,6 +35,195 @@ public class UserServiceImplTest {
         userMapper = Mockito.mock(UserMapper.class);
         userTaskInstanceMapper = Mockito.mock(UserTaskInstanceMapper.class);
         userService = new UserServiceImpl(userMapper, userTaskInstanceMapper);
+        try {
+            java.lang.reflect.Field fBase = ServiceImpl.class.getDeclaredField("baseMapper");
+            fBase.setAccessible(true);
+            fBase.set(userService, userMapper);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Test
+    public void register_shouldReturnFalse_whenInputInvalidOrUserExists() {
+        assertFalse(userService.register(new User(), " ", "USER"));
+
+        User exists = new User();
+        exists.setUsername("u1");
+        when(userMapper.selectByUsername("u1")).thenReturn(exists);
+        User u = new User();
+        u.setUsername("u1");
+        assertFalse(userService.register(u, "p", "USER"));
+    }
+
+    @Test
+    public void register_shouldNormalizeRoleAndHashPassword() {
+        when(userMapper.selectByUsername("u2")).thenReturn(null);
+        when(userMapper.insert(any(User.class))).thenReturn(1);
+        User u = new User();
+        u.setUsername("u2");
+
+        boolean ok = userService.register(u, "raw-pass", "ADMIN");
+
+        assertTrue(ok);
+        verify(userMapper).insert(any(User.class));
+        assertNotNull(u.getId());
+        assertEquals("ROLE_ADMIN", u.getRoles());
+        assertEquals(0, u.getPointBalance());
+        assertNotEquals("raw-pass", u.getPassword());
+    }
+
+    @Test
+    public void register_shouldUseDefaultRole_whenRolesBlank() {
+        when(userMapper.selectByUsername("u3")).thenReturn(null);
+        when(userMapper.insert(any(User.class))).thenReturn(1);
+        User u = new User();
+        u.setUsername("u3");
+
+        boolean ok = userService.register(u, "p3", " ");
+
+        assertTrue(ok);
+        assertEquals("ROLE_USER", u.getRoles());
+    }
+
+    @Test
+    public void register_shouldKeepRolePrefix_andKeepPointBalanceWhenProvided() {
+        when(userMapper.selectByUsername("u4")).thenReturn(null);
+        when(userMapper.insert(any(User.class))).thenReturn(1);
+        User u = new User();
+        u.setUsername("u4");
+        u.setPointBalance(88);
+
+        boolean ok = userService.register(u, "p4", "ROLE_ADMIN");
+
+        assertTrue(ok);
+        assertEquals("ROLE_ADMIN", u.getRoles());
+        assertEquals(88, u.getPointBalance());
+    }
+
+    @Test
+    public void authenticate_shouldReturnNullWhenMissingOrPasswordMismatch() {
+        when(userMapper.selectByUsername("no-user")).thenReturn(null);
+        assertNull(userService.authenticate("no-user", "x"));
+
+        User u = new User();
+        u.setId(1L);
+        u.setUsername("u1");
+        u.setPassword(new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().encode("correct"));
+        when(userMapper.selectByUsername("u1")).thenReturn(u);
+        assertNull(userService.authenticate("u1", "wrong"));
+    }
+
+    @Test
+    public void authenticate_shouldReturnSafeUser_whenPasswordMatches() {
+        User u = new User();
+        u.setId(9L);
+        u.setUsername("safe");
+        u.setRoles("ROLE_USER");
+        u.setPointBalance(7);
+        u.setPassword(new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().encode("ok"));
+        when(userMapper.selectByUsername("safe")).thenReturn(u);
+
+        User out = userService.authenticate("safe", "ok");
+
+        assertNotNull(out);
+        assertEquals(9L, out.getId());
+        assertEquals("safe", out.getUsername());
+        assertNull(out.getPassword());
+    }
+
+    @Test
+    public void countActiveUsersSince_shouldReturnZeroWhenNull() {
+        assertEquals(0L, userService.countActiveUsersSince(null));
+    }
+
+    @Test
+    public void countActiveUsersSince_shouldDelegate_whenNonNull() {
+        Date since = new Date();
+        when(userTaskInstanceMapper.countDistinctUsersSince(since)).thenReturn(12L);
+
+        long out = userService.countActiveUsersSince(since);
+
+        assertEquals(12L, out);
+    }
+
+    @Test
+    public void counters_shouldDelegateToMapper() {
+        when(userMapper.countAllUsers()).thenReturn(123L);
+        when(userTaskInstanceMapper.countDistinctUsersToday()).thenReturn(11L);
+
+        assertEquals(123L, userService.countAllUsers());
+        assertEquals(11L, userService.countUsersToday());
+    }
+
+    @Test
+    public void updateUserPoints_shouldReflectAffectedRows() {
+        when(userMapper.updateUserPoints(100L, 20)).thenReturn(1);
+        when(userMapper.updateUserPoints(101L, 20)).thenReturn(0);
+
+        assertTrue(userService.updateUserPoints(100L, 20));
+        assertFalse(userService.updateUserPoints(101L, 20));
+    }
+
+    @Test
+    public void getTaskReceiveUserCountLast7Days_shouldTreatNonNumericCntAsZero() {
+        Calendar cal = Calendar.getInstance();
+        cal.set(Calendar.HOUR_OF_DAY, 0);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        Date todayStart = cal.getTime();
+        cal.add(Calendar.DAY_OF_MONTH, -6);
+        Date firstDay = cal.getTime();
+
+        Calendar endCal = Calendar.getInstance();
+        endCal.setTime(todayStart);
+        endCal.add(Calendar.DAY_OF_MONTH, 1);
+        Date end = endCal.getTime();
+
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        Map<String, Object> row = new HashMap<>();
+        row.put("the_date", sdf.format(firstDay));
+        row.put("cnt", "bad-number");
+        when(userTaskInstanceMapper.countDistinctUserIdsGroupByDate(firstDay, end)).thenReturn(List.of(row));
+
+        List<Long> out = userService.getTaskReceiveUserCountLast7Days();
+
+        assertEquals(7, out.size());
+        assertEquals(0L, out.get(0));
+    }
+
+    @Test
+    public void getTaskReceiveUserCountLast7Days_shouldHandleNullDateAndStringNumber() {
+        Calendar cal = Calendar.getInstance();
+        cal.set(Calendar.HOUR_OF_DAY, 0);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        Date todayStart = cal.getTime();
+        cal.add(Calendar.DAY_OF_MONTH, -6);
+        Date firstDay = cal.getTime();
+
+        Calendar endCal = Calendar.getInstance();
+        endCal.setTime(todayStart);
+        endCal.add(Calendar.DAY_OF_MONTH, 1);
+        Date end = endCal.getTime();
+
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        Map<String, Object> row0 = new HashMap<>();
+        row0.put("the_date", null); // 覆盖 d == null 分支
+        row0.put("cnt", 9);
+
+        Map<String, Object> row1 = new HashMap<>();
+        row1.put("the_date", sdf.format(firstDay));
+        row1.put("cnt", "12"); // 覆盖字符串可解析分支
+
+        when(userTaskInstanceMapper.countDistinctUserIdsGroupByDate(firstDay, end)).thenReturn(List.of(row1, row0));
+
+        List<Long> out = userService.getTaskReceiveUserCountLast7Days();
+
+        assertEquals(7, out.size());
+        assertEquals(12L, out.get(0));
     }
 
     @Test
@@ -162,5 +363,98 @@ public class UserServiceImplTest {
         }
 
         assertEquals(expected, res);
+    }
+
+    @Test
+    public void getActiveUserCountLast7Days_shouldIgnoreInvalidUserId() {
+        Calendar cal = Calendar.getInstance();
+        cal.set(Calendar.HOUR_OF_DAY, 0);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        Date todayStart = cal.getTime();
+        cal.add(Calendar.DAY_OF_MONTH, -6);
+        Date firstDay = cal.getTime();
+        Calendar minCal = Calendar.getInstance();
+        minCal.setTime(firstDay);
+        minCal.add(Calendar.DAY_OF_MONTH, -6);
+        Date dataStart = minCal.getTime();
+        Calendar endCal = Calendar.getInstance();
+        endCal.setTime(todayStart);
+        endCal.add(Calendar.DAY_OF_MONTH, 1);
+        Date dataEnd = endCal.getTime();
+
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        Map<String, Object> row = new HashMap<>();
+        row.put("the_date", null); // 覆盖 d == null 分支
+        row.put("user_id", "not-a-number");
+        when(userTaskInstanceMapper.selectUserIdsByDate(dataStart, dataEnd)).thenReturn(List.of(row));
+
+        List<Long> out = userService.getActiveUserCountLast7Days();
+
+        assertEquals(7, out.size());
+        assertTrue(out.stream().allMatch(v -> v == 0L));
+    }
+
+    @Test
+    public void getActiveUserCountLast7Days_shouldIgnoreRowsWithNullDateOrUserId() {
+        Calendar cal = Calendar.getInstance();
+        cal.set(Calendar.HOUR_OF_DAY, 0);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        Date todayStart = cal.getTime();
+        cal.add(Calendar.DAY_OF_MONTH, -6);
+        Date firstDay = cal.getTime();
+        Calendar minCal = Calendar.getInstance();
+        minCal.setTime(firstDay);
+        minCal.add(Calendar.DAY_OF_MONTH, -6);
+        Date dataStart = minCal.getTime();
+        Calendar endCal = Calendar.getInstance();
+        endCal.setTime(todayStart);
+        endCal.add(Calendar.DAY_OF_MONTH, 1);
+        Date dataEnd = endCal.getTime();
+
+        Map<String, Object> r1 = new HashMap<>();
+        r1.put("the_date", null);
+        r1.put("user_id", 1L);
+        Map<String, Object> r2 = new HashMap<>();
+        r2.put("the_date", "2026-01-01");
+        r2.put("user_id", null);
+        Map<String, Object> r3 = new HashMap<>();
+        r3.put("the_date", "2026-01-01");
+        r3.put("user_id", "7");
+        when(userTaskInstanceMapper.selectUserIdsByDate(dataStart, dataEnd)).thenReturn(List.of(r1, r2, r3));
+
+        List<Long> out = userService.getActiveUserCountLast7Days();
+
+        assertEquals(7, out.size());
+        assertTrue(out.stream().allMatch(v -> v >= 0L));
+    }
+
+    @Test
+    public void delegateCrudMethods_shouldCoverServiceImplBranches() {
+        User u = new User();
+        u.setId(9001L);
+        u.setUsername("u9001");
+
+        when(userMapper.insert(any(User.class))).thenReturn(1);
+        assertTrue(userService.save(u));
+
+        when(userMapper.updateById(any(User.class))).thenReturn(1);
+        assertTrue(userService.update(u));
+
+        when(userMapper.selectById(9001L)).thenReturn(u);
+        assertSame(u, userService.getById(9001L));
+
+        when(userMapper.selectList(any())).thenReturn(List.of(u));
+        assertEquals(1, userService.listAll().size());
+
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<User> page = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(1, 10);
+        when(userMapper.selectPage(eq(page), isNull())).thenReturn(page);
+        assertSame(page, userService.selectPage(page));
+
+        when(userMapper.selectByUsername("u9001")).thenReturn(u);
+        assertSame(u, userService.selectByUsername("u9001"));
     }
 }

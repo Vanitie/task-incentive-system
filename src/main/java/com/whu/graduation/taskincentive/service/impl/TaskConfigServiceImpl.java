@@ -86,21 +86,23 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
      * 事务提交后清除缓存，避免在事务中执行可能失败的 Redis 操作导致事务回滚后缓存不一致问题
      * @param id 任务配置 ID
      */
+    private void evictCacheNow(Long id) {
+        String key = CacheKeys.TASK_CONFIG_PREFIX + id;
+        try { redisTemplate.delete(key); } catch (Exception e) { log.warn("delete taskConfig from redis failed, key={}, err={}", key, e.getMessage()); }
+        localTaskConfigCache.invalidate(id);
+    }
+
     private void evictCacheAfterCommit(Long id) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    String key = CacheKeys.TASK_CONFIG_PREFIX + id;
-                    try { redisTemplate.delete(key); } catch (Exception e) { log.warn("delete taskConfig from redis failed afterCommit, key={}, err={}", key, e.getMessage()); }
-                    try { localTaskConfigCache.invalidate(id); } catch (Exception e) { log.warn("invalidate local cache failed afterCommit, id={}, err={}", id, e.getMessage()); }
+                    try { evictCacheNow(id); } catch (Exception e) { log.warn("evict taskConfig cache afterCommit failed for id={}, err={}", id, e.getMessage()); }
                     log.debug("skip event->task set cleanup for taskId={}", id);
                 }
             });
         } else {
-            String key = CacheKeys.TASK_CONFIG_PREFIX + id;
-            try { redisTemplate.delete(key); } catch (Exception e) { log.warn("delete taskConfig from redis failed, key={}, err={}", key, e.getMessage()); }
-            localTaskConfigCache.invalidate(id);
+            evictCacheNow(id);
         }
     }
 
@@ -157,7 +159,8 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean deleteById(Long id) {
-        boolean removed = super.removeById(id);
+        // 使用 mapper 直接删除，避免在轻量单测环境下依赖 MyBatis TableInfo 元数据
+        boolean removed = this.baseMapper.deleteById(id) > 0;
         if (!removed) return false;
 
         // 删除库存记录（若存在）以及缓存失效，均在事务提交后执行
@@ -166,7 +169,7 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
                 @Override
                 public void afterCommit() {
                     try { taskStockService.deleteById(id); } catch (Exception e) { log.warn("delete taskStock after commit failed for taskId={}, err={}", id, e.getMessage()); }
-                    evictCacheAfterCommit(id);
+                    try { evictCacheNow(id); } catch (Exception e) { log.warn("evict taskConfig cache after commit failed for taskId={}, err={}", id, e.getMessage()); }
                 }
             });
         } else {

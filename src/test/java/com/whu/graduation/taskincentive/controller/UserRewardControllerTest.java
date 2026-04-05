@@ -2,6 +2,7 @@ package com.whu.graduation.taskincentive.controller;
 
 import com.whu.graduation.taskincentive.dao.entity.UserRewardRecord;
 import com.whu.graduation.taskincentive.service.UserRewardRecordService;
+import com.whu.graduation.taskincentive.testutil.ReflectionTestUtils;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -10,6 +11,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
 
@@ -143,5 +145,20 @@ public class UserRewardControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data").value(true));
+    }
+
+    @Test
+    public void computePercent_shouldCoverAllBranches() throws Exception {
+        UserRewardController plain = new UserRewardController();
+        ReflectionTestUtils.setFieldRecursively(plain, "recordService", recordService);
+        Method method = UserRewardController.class.getDeclaredMethod("computePercent", List.class);
+        method.setAccessible(true);
+
+        org.junit.jupiter.api.Assertions.assertEquals("+0%", method.invoke(plain, new Object[]{null}));
+        org.junit.jupiter.api.Assertions.assertEquals("+0%", method.invoke(plain, List.of(9L)));
+        org.junit.jupiter.api.Assertions.assertEquals("+0%", method.invoke(plain, List.of(0L, 0L)));
+        org.junit.jupiter.api.Assertions.assertEquals("+100%", method.invoke(plain, List.of(0L, 5L)));
+        org.junit.jupiter.api.Assertions.assertEquals("+25%", method.invoke(plain, List.of(8L, 10L)));
+        org.junit.jupiter.api.Assertions.assertEquals("-50%", method.invoke(plain, List.of(10L, 5L)));
     }
 }

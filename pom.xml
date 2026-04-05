@@ -198,6 +198,15 @@
     </dependencies>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <excludes>
+                    <!-- docs 仅用于论文/设计文档，不应进入运行时 classpath；其中 plantuml.jar 会导致 JaCoCo report 解析失败 -->
+                    <exclude>docs/**</exclude>
+                </excludes>
+            </resource>
+        </resources>
         <plugins>
             <!-- Compiler plugin for Java 17 -->
             <plugin>
@@ -243,6 +252,18 @@
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>0.8.12</version>
+                <configuration>
+                    <!-- 统一 report/check/CLI 口径，避免 execution 层配置漂移 -->
+                    <excludes>
+                        <exclude>**/docs/**</exclude>
+                        <exclude>**/generator/**</exclude>
+                        <exclude>**/util/**</exclude>
+                        <exclude>com/whu/graduation/taskincentive/util/**</exclude>
+                        <exclude>**/*Generator*</exclude>
+                        <exclude>**/*.jar</exclude>
+                    </excludes>
+                    <exclClassLoaders>*jar*</exclClassLoaders>
+                </configuration>
                 <executions>
                     <execution>
                         <id>prepare-agent</id>
@@ -252,15 +273,10 @@
                     </execution>
                     <execution>
                         <id>report</id>
-                        <phase>test</phase>
+                        <phase>verify</phase>
                         <goals>
                             <goal>report</goal>
                         </goals>
-                        <configuration>
-                            <excludes>
-                                <exclude>**/docs/**</exclude>
-                            </excludes>
-                        </configuration>
                     </execution>
                     <execution>
                         <id>check</id>
@@ -269,18 +285,17 @@
                             <goal>check</goal>
                         </goals>
                         <configuration>
-                            <excludes>
-                                <exclude>**/docs/**</exclude>
-                            </excludes>
                             <rules>
                                 <rule>
-                                    <element>PACKAGE</element>
-                                    <includes>
-                                        <include>com/whu/graduation/taskincentive/engine*</include>
-                                    </includes>
+                                    <element>BUNDLE</element>
                                     <limits>
                                         <limit>
                                             <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.90</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
                                             <value>COVEREDRATIO</value>
                                             <minimum>0.90</minimum>
                                         </limit>

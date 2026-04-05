@@ -1,6 +1,7 @@
 package com.whu.graduation.taskincentive.service;
 
 import com.alibaba.fastjson.JSON;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.constant.CacheKeys;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.mapper.TaskConfigMapper;
@@ -15,6 +16,7 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -165,183 +167,89 @@ public class TaskConfigServiceImplTest {
     }
 
     @Test
-    public void getTaskConfigsByIds_handles_multiGet_exception_and_falls_back_to_db() {
-        Long id1 = 11L, id2 = 12L;
-        Set<Long> ids = new LinkedHashSet<>(); ids.add(id1); ids.add(id2);
-        List<String> keys = Arrays.asList(CacheKeys.TASK_CONFIG_PREFIX + id1, CacheKeys.TASK_CONFIG_PREFIX + id2);
-
-        // simulate multiGet throwing
-        when(redisTemplate.opsForValue().multiGet(keys)).thenThrow(new RuntimeException("redis down"));
-
-        TaskConfig cfg2 = new TaskConfig(); cfg2.setId(id2); cfg2.setTaskName("b");
-        when(mapper.selectBatchIds(anySet())).thenReturn(Arrays.asList(cfg2));
-
-        Map<Long, TaskConfig> result = service.getTaskConfigsByIds(ids);
-        assertEquals(1, result.size());
-        assertTrue(result.containsKey(id2));
-        verify(mapper, times(1)).selectBatchIds(any());
-    }
-
-    @Test
-    public void invalidateTaskConfig_clears_local_cache_entry() throws Exception {
-        Long id = 999L;
-        TaskConfig cfg = new TaskConfig(); cfg.setId(id);
-
-        // access private localTaskConfigCache and put a value
-        java.lang.reflect.Field cacheField = TaskConfigServiceImpl.class.getDeclaredField("localTaskConfigCache");
-        cacheField.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        Cache<Long, TaskConfig> localCache = (Cache<Long, TaskConfig>) cacheField.get(service);
-        localCache.put(id, cfg);
-        assertNotNull(localCache.getIfPresent(id));
-
-        // call invalidate
-        service.invalidateTaskConfig(id);
-        assertNull(localCache.getIfPresent(id));
-    }
-
-    @Test
-    public void update_writesRedis_whenNoTransaction() {
-        TaskConfig tc = new TaskConfig();
-        tc.setId(321L);
-        tc.setTaskName("u1");
-        // mock mapper.updateById via baseMapper
-        when(mapper.updateById(any())).thenReturn(1);
-
-        boolean ok = service.update(tc);
-        assertTrue(ok);
-        verify(valueOps, times(1)).set(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS));
-    }
-
-    @Test
-    public void deleteById_removesStock_and_evictsCache_whenNoTransaction() throws Exception {
-        Long id = 444L;
-        // Instead of calling service.deleteById which depends on MyBatis-Plus TableInfo,
-        // directly verify the intended side-effects by invoking evictCacheAfterCommit and taskStockService.
-
-        // put something in cache first
-        java.lang.reflect.Field cacheField = TaskConfigServiceImpl.class.getDeclaredField("localTaskConfigCache");
-        cacheField.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        com.github.benmanes.caffeine.cache.Cache<Long, TaskConfig> localCache = (com.github.benmanes.caffeine.cache.Cache<Long, TaskConfig>) cacheField.get(service);
-        TaskConfig tc = new TaskConfig(); tc.setId(id);
-        localCache.put(id, tc);
-        assertNotNull(localCache.getIfPresent(id));
-
-        // simulate non-transactional delete path: taskStockService.deleteById + evictCacheAfterCommit
-        // find evictCacheAfterCommit dynamically via reflection
-        java.lang.reflect.Method mm = null;
-        for (java.lang.reflect.Method method : TaskConfigServiceImpl.class.getDeclaredMethods()) {
-            if (method.getName().equals("evictCacheAfterCommit")) { mm = method; break; }
-        }
-        assertNotNull(mm);
-        mm.setAccessible(true);
-        mm.invoke(service, id);
-
-        // simulate taskStockService delete
-        service.getClass(); // no-op to keep style
-        // taskStockService.deleteById returns boolean, mock return value instead of doNothing
-        when(taskStockService.deleteById(eq(id))).thenReturn(true);
-        boolean deleted = taskStockService.deleteById(id);
-        assertTrue(deleted);
-
-        // assert local cache invalidated after calling evict logic
-        assertNull(localCache.getIfPresent(id));
-        verify(taskStockService, times(1)).deleteById(eq(id));
-    }
-
-    @Test
-    public void getTaskConfig_handles_invalidJson_inRedis_and_fallbacksToDb() {
-        Long id = 555L;
-        String key = CacheKeys.TASK_CONFIG_PREFIX + id;
-        // redis returns invalid json
-        when(valueOps.get(key)).thenReturn("{not:valid-json}");
-        TaskConfig dbCfg = new TaskConfig(); dbCfg.setId(id); dbCfg.setTaskName("fromdb");
-        when(mapper.selectById(id)).thenReturn(dbCfg);
-
-        TaskConfig res = service.getTaskConfig(id);
-        assertNotNull(res);
-        assertEquals(id, res.getId());
-        // should have attempted to write back to redis
-        verify(valueOps, times(1)).set(eq(key), anyString(), eq(60L), eq(TimeUnit.SECONDS));
-    }
-
-    @Test
-    public void getTaskIdsByEventType_returnsRedisMembers_whenPresent() {
-        String evt = "EVT_Y";
+    public void getTaskIdsByEventType_shouldReturnRedisMembers_whenPresent() {
+        String evt = "EVT_DIRECT";
         String key = CacheKeys.EVENT_TASKS_PREFIX + evt;
-        // mock set operations
+        @SuppressWarnings("unchecked")
         org.springframework.data.redis.core.SetOperations<String, String> setOps = mock(org.springframework.data.redis.core.SetOperations.class);
         when(redisTemplate.opsForSet()).thenReturn(setOps);
-        Set<String> members = new HashSet<>(Arrays.asList("101","102"));
-        when(setOps.members(key)).thenReturn(members);
+        when(setOps.members(key)).thenReturn(Set.of("101", "102"));
 
-        Set<String> res = service.getTaskIdsByEventType(evt);
-        assertNotNull(res);
-        assertEquals(2, res.size());
-        verify(setOps, times(1)).members(key);
-        // should not call DB
+        Set<String> out = service.getTaskIdsByEventType(evt);
+
+        assertEquals(2, out.size());
         verify(mapper, never()).selectList(any());
     }
 
     @Test
-    public void writeCacheAfterCommit_registersSynchronization_and_executes_afterCommit() throws Exception {
-        Long id = 700L;
-        TaskConfig tc = new TaskConfig(); tc.setId(id); tc.setTaskName("txcache");
+    public void getTaskIdsByEventType_shouldReturnEmpty_whenRedisFailsAndDbEmpty() {
+        String evt = "EVT_EMPTY";
+        String key = CacheKeys.EVENT_TASKS_PREFIX + evt;
+        @SuppressWarnings("unchecked")
+        org.springframework.data.redis.core.SetOperations<String, String> setOps = mock(org.springframework.data.redis.core.SetOperations.class);
+        when(redisTemplate.opsForSet()).thenReturn(setOps);
+        when(setOps.members(key)).thenThrow(new RuntimeException("redis down"));
+        when(mapper.selectList(any())).thenReturn(Collections.emptyList());
 
-        // activate synchronization
-        TransactionSynchronizationManager.initSynchronization();
-        try {
-            // call private method writeCacheAfterCommit via reflection
-            java.lang.reflect.Method m = TaskConfigServiceImpl.class.getDeclaredMethod("writeCacheAfterCommit", TaskConfig.class);
-            m.setAccessible(true);
-            m.invoke(service, tc);
+        Set<String> out = service.getTaskIdsByEventType(evt);
 
-            // get registered synchronizations and execute afterCommit to simulate commit
-            for (org.springframework.transaction.support.TransactionSynchronization sync : TransactionSynchronizationManager.getSynchronizations()) {
-                sync.afterCommit();
-            }
-
-            String key = CacheKeys.TASK_CONFIG_PREFIX + id;
-            verify(valueOps, times(1)).set(eq(key), anyString(), eq(60L), eq(TimeUnit.SECONDS));
-
-            // also local cache should contain the entry
-            java.lang.reflect.Field cacheField = TaskConfigServiceImpl.class.getDeclaredField("localTaskConfigCache");
-            cacheField.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            com.github.benmanes.caffeine.cache.Cache<Long, TaskConfig> localCache = (com.github.benmanes.caffeine.cache.Cache<Long, TaskConfig>) cacheField.get(service);
-            assertNotNull(localCache.getIfPresent(id));
-        } finally {
-            TransactionSynchronizationManager.clearSynchronization();
-        }
+        assertNotNull(out);
+        assertTrue(out.isEmpty());
     }
 
     @Test
-    public void evictCacheAfterCommit_registersSynchronization_and_executes_afterCommit() throws Exception {
-        Long id = 701L;
-        TaskConfig tc = new TaskConfig(); tc.setId(id);
+    public void getTaskConfig_shouldFallbackToDb_whenRedisJsonInvalid() {
+        Long id = 9701L;
+        String key = CacheKeys.TASK_CONFIG_PREFIX + id;
+        when(valueOps.get(key)).thenReturn("{bad-json");
+        TaskConfig db = new TaskConfig();
+        db.setId(id);
+        db.setTaskName("db");
+        when(mapper.selectById(id)).thenReturn(db);
 
-        // put into local cache first
-        java.lang.reflect.Field cacheField = TaskConfigServiceImpl.class.getDeclaredField("localTaskConfigCache");
-        cacheField.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        com.github.benmanes.caffeine.cache.Cache<Long, TaskConfig> localCache = (com.github.benmanes.caffeine.cache.Cache<Long, TaskConfig>) cacheField.get(service);
-        localCache.put(id, tc);
-        assertNotNull(localCache.getIfPresent(id));
+        TaskConfig out = service.getTaskConfig(id);
+
+        assertNotNull(out);
+        assertEquals(id, out.getId());
+        verify(valueOps, times(1)).set(eq(key), anyString(), eq(60L), eq(TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void refreshTaskConfig_shouldFallbackToDb_whenRedisReadThrows() {
+        Long id = 9702L;
+        String key = CacheKeys.TASK_CONFIG_PREFIX + id;
+        when(valueOps.get(key)).thenThrow(new RuntimeException("redis read err"));
+        TaskConfig db = new TaskConfig();
+        db.setId(id);
+        when(mapper.selectById(id)).thenReturn(db);
+
+        service.refreshTaskConfig(id);
+
+        verify(valueOps, times(1)).set(eq(key), anyString(), eq(60L), eq(TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void writeAndEvictCacheAfterCommit_shouldRunCallbacks_whenSynchronizationActive() throws Exception {
+        Long id = 9703L;
+        TaskConfig tc = new TaskConfig();
+        tc.setId(id);
+        tc.setTaskName("tc");
 
         TransactionSynchronizationManager.initSynchronization();
         try {
-            java.lang.reflect.Method m = TaskConfigServiceImpl.class.getDeclaredMethod("evictCacheAfterCommit", Long.class);
-            m.setAccessible(true);
-            m.invoke(service, id);
+            java.lang.reflect.Method write = TaskConfigServiceImpl.class.getDeclaredMethod("writeCacheAfterCommit", TaskConfig.class);
+            write.setAccessible(true);
+            write.invoke(service, tc);
+
+            java.lang.reflect.Method evict = TaskConfigServiceImpl.class.getDeclaredMethod("evictCacheAfterCommit", Long.class);
+            evict.setAccessible(true);
+            evict.invoke(service, id);
 
             for (org.springframework.transaction.support.TransactionSynchronization sync : TransactionSynchronizationManager.getSynchronizations()) {
                 sync.afterCommit();
             }
 
-            // after commit, local cache should be invalidated
-            assertNull(localCache.getIfPresent(id));
-            // redis delete should be attempted
+            verify(valueOps, atLeastOnce()).set(anyString(), anyString(), eq(60L), eq(TimeUnit.SECONDS));
             verify(redisTemplate, atLeastOnce()).delete(anyString());
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
@@ -349,9 +257,647 @@ public class TaskConfigServiceImplTest {
     }
 
     @Test
-    public void getTaskConfigsByIds_emptyInput_returnsEmptyMap() {
-        Map<Long, TaskConfig> res = service.getTaskConfigsByIds(Collections.emptySet());
-        assertNotNull(res);
-        assertTrue(res.isEmpty());
+    public void createTaskStock_shouldCoverStairAndNonStairBranches() throws Exception {
+        java.lang.reflect.Method m = TaskConfigServiceImpl.class.getDeclaredMethod("createTaskStock", TaskConfig.class);
+        m.setAccessible(true);
+
+        TaskConfig stair = new TaskConfig();
+        stair.setId(9801L);
+        stair.setTaskType("STAIR");
+        stair.setStockType("LIMITED");
+        stair.setTotalStock(8);
+        stair.setRuleConfig("{\"stages\":[1,2]}");
+
+        TaskConfig normalLimited = new TaskConfig();
+        normalLimited.setId(9802L);
+        normalLimited.setTaskType("ACCUMULATE");
+        normalLimited.setStockType("LIMITED");
+        normalLimited.setTotalStock(5);
+        normalLimited.setRuleConfig("{}");
+
+        m.invoke(service, stair);
+        m.invoke(service, normalLimited);
+
+        verify(taskStockService, times(1)).deleteById(9801L);
+        verify(taskStockService, times(3)).save(any());
+    }
+
+    @Test
+    public void getTaskIdsByEventType_shouldFallbackToDb_whenRedisReturnsEmptySet() {
+        String evt = "EVT_EMPTY_SET";
+        String key = CacheKeys.EVENT_TASKS_PREFIX + evt;
+        @SuppressWarnings("unchecked")
+        org.springframework.data.redis.core.SetOperations<String, String> setOps = mock(org.springframework.data.redis.core.SetOperations.class);
+        when(redisTemplate.opsForSet()).thenReturn(setOps);
+        when(setOps.members(key)).thenReturn(Collections.emptySet());
+
+        TaskConfig tc = new TaskConfig();
+        tc.setId(44L);
+        when(mapper.selectList(any())).thenReturn(List.of(tc));
+
+        Set<String> out = service.getTaskIdsByEventType(evt);
+
+        assertEquals(Set.of("44"), out);
+        verify(mapper, times(1)).selectList(any());
+    }
+
+    @Test
+    public void update_shouldSetZeroStock_whenTotalStockNull() {
+        TaskConfig tc = new TaskConfig();
+        tc.setId(9901L);
+        tc.setStockType("LIMITED");
+        tc.setTotalStock(null);
+        tc.setRuleConfig("{}");
+        when(mapper.updateById(any())).thenReturn(1);
+
+        boolean ok = service.update(tc);
+
+        assertTrue(ok);
+        ArgumentCaptor<com.whu.graduation.taskincentive.dao.entity.TaskStock> captor = ArgumentCaptor.forClass(com.whu.graduation.taskincentive.dao.entity.TaskStock.class);
+        verify(taskStockService).update(captor.capture());
+        assertEquals(0, captor.getValue().getAvailableStock());
+    }
+
+    @Test
+    public void getTaskConfigsByIds_shouldFallbackToDb_whenMultiGetReturnsShortList() {
+        Set<Long> ids = new LinkedHashSet<>(Arrays.asList(9101L, 9102L));
+        List<String> keys = Arrays.asList(CacheKeys.TASK_CONFIG_PREFIX + 9101L, CacheKeys.TASK_CONFIG_PREFIX + 9102L);
+        when(redisTemplate.opsForValue().multiGet(keys)).thenReturn(List.of(JSON.toJSONString(new TaskConfig() {{ setId(9101L); }})));
+
+        TaskConfig db = new TaskConfig();
+        db.setId(9102L);
+        when(mapper.selectBatchIds(anySet())).thenReturn(List.of(db));
+
+        Map<Long, TaskConfig> out = service.getTaskConfigsByIds(ids);
+
+        assertEquals(2, out.size());
+        assertTrue(out.containsKey(9101L));
+        assertTrue(out.containsKey(9102L));
+    }
+
+    @Test
+    public void createTaskStock_shouldSkipDelete_whenStairStagesEmpty() throws Exception {
+        java.lang.reflect.Method m = TaskConfigServiceImpl.class.getDeclaredMethod("createTaskStock", TaskConfig.class);
+        m.setAccessible(true);
+
+        TaskConfig stairEmpty = new TaskConfig();
+        stairEmpty.setId(9902L);
+        stairEmpty.setTaskType("STAIR");
+        stairEmpty.setStockType("LIMITED");
+        stairEmpty.setTotalStock(3);
+        stairEmpty.setRuleConfig("{\"stages\":[]}");
+
+        m.invoke(service, stairEmpty);
+
+        verify(taskStockService, never()).deleteById(9902L);
+    }
+
+    @Test
+    public void save_shouldNormalizeBlankRuleConfig() {
+        TaskConfig tc = new TaskConfig();
+        tc.setStockType("UNLIMITED");
+        tc.setRuleConfig("   ");
+        when(mapper.insert(any())).thenReturn(1);
+
+        boolean ok = service.save(tc);
+
+        assertTrue(ok);
+        assertEquals("{}", tc.getRuleConfig());
+    }
+
+    @Test
+    public void update_shouldNormalizeNullRuleConfig() {
+        TaskConfig tc = new TaskConfig();
+        tc.setId(9903L);
+        tc.setStockType("UNLIMITED");
+        tc.setRuleConfig(null);
+        when(mapper.updateById(any())).thenReturn(1);
+
+        boolean ok = service.update(tc);
+
+        assertTrue(ok);
+        assertEquals("{}", tc.getRuleConfig());
+        verify(taskStockService, times(1)).deleteById(9903L);
+    }
+
+    @Test
+    public void getTaskConfigsByIds_shouldFallbackToDb_whenMultiGetReturnsNull() {
+        Set<Long> ids = new LinkedHashSet<>(Arrays.asList(9201L, 9202L));
+        List<String> keys = Arrays.asList(CacheKeys.TASK_CONFIG_PREFIX + 9201L, CacheKeys.TASK_CONFIG_PREFIX + 9202L);
+        when(redisTemplate.opsForValue().multiGet(keys)).thenReturn(null);
+
+        TaskConfig c1 = new TaskConfig(); c1.setId(9201L);
+        TaskConfig c2 = new TaskConfig(); c2.setId(9202L);
+        when(mapper.selectBatchIds(anySet())).thenReturn(Arrays.asList(c1, c2));
+
+        Map<Long, TaskConfig> out = service.getTaskConfigsByIds(ids);
+
+        assertEquals(2, out.size());
+        assertTrue(out.containsKey(9201L));
+        assertTrue(out.containsKey(9202L));
+    }
+
+    @Test
+    public void getTaskIdsByEventType_shouldReturnEmpty_whenDbListNull() {
+        String evt = "EVT_DB_NULL";
+        String key = CacheKeys.EVENT_TASKS_PREFIX + evt;
+        @SuppressWarnings("unchecked")
+        org.springframework.data.redis.core.SetOperations<String, String> setOps = mock(org.springframework.data.redis.core.SetOperations.class);
+        when(redisTemplate.opsForSet()).thenReturn(setOps);
+        when(setOps.members(key)).thenReturn(Collections.emptySet());
+        when(mapper.selectList(any())).thenReturn(null);
+
+        Set<String> out = service.getTaskIdsByEventType(evt);
+
+        assertNotNull(out);
+        assertTrue(out.isEmpty());
+    }
+
+    @Test
+    public void getTaskConfigsByIds_shouldSkipNullParsedRedisConfigAndUseDb() {
+        Set<Long> ids = new LinkedHashSet<>(Arrays.asList(9301L, 9302L));
+        List<String> keys = Arrays.asList(CacheKeys.TASK_CONFIG_PREFIX + 9301L, CacheKeys.TASK_CONFIG_PREFIX + 9302L);
+        when(redisTemplate.opsForValue().multiGet(keys)).thenReturn(Arrays.asList("null", null));
+
+        TaskConfig db = new TaskConfig();
+        db.setId(9302L);
+        when(mapper.selectBatchIds(anySet())).thenReturn(List.of(db));
+
+        Map<Long, TaskConfig> out = service.getTaskConfigsByIds(ids);
+
+        assertEquals(1, out.size());
+        assertTrue(out.containsKey(9302L));
+    }
+
+    @Test
+    public void getTaskConfigsByIds_shouldReturnWithoutDb_whenAllFoundFromRedis() {
+        Set<Long> ids = new LinkedHashSet<>(Arrays.asList(9401L, 9402L));
+        List<String> keys = Arrays.asList(CacheKeys.TASK_CONFIG_PREFIX + 9401L, CacheKeys.TASK_CONFIG_PREFIX + 9402L);
+        TaskConfig r1 = new TaskConfig(); r1.setId(9401L);
+        TaskConfig r2 = new TaskConfig(); r2.setId(9402L);
+        when(redisTemplate.opsForValue().multiGet(keys)).thenReturn(Arrays.asList(JSON.toJSONString(r1), JSON.toJSONString(r2)));
+
+        Map<Long, TaskConfig> out = service.getTaskConfigsByIds(ids);
+
+        assertEquals(2, out.size());
+        verify(mapper, never()).selectBatchIds(anySet());
+    }
+
+    @Test
+    public void getTaskConfigsByIds_shouldIgnoreNullDbRowsAndNullIds() {
+        Set<Long> ids = new LinkedHashSet<>(Arrays.asList(9501L, 9502L));
+        List<String> keys = Arrays.asList(CacheKeys.TASK_CONFIG_PREFIX + 9501L, CacheKeys.TASK_CONFIG_PREFIX + 9502L);
+        when(redisTemplate.opsForValue().multiGet(keys)).thenReturn(Arrays.asList(null, null));
+
+        TaskConfig nullId = new TaskConfig();
+        nullId.setId(null);
+        when(mapper.selectBatchIds(anySet())).thenReturn(Arrays.asList(null, nullId));
+
+        Map<Long, TaskConfig> out = service.getTaskConfigsByIds(ids);
+
+        assertTrue(out.isEmpty());
+    }
+
+    @Test
+    public void createTaskStock_shouldUseElseIfLimited_whenStairRuleConfigNull() throws Exception {
+        java.lang.reflect.Method m = TaskConfigServiceImpl.class.getDeclaredMethod("createTaskStock", TaskConfig.class);
+        m.setAccessible(true);
+
+        TaskConfig stairLimitedNoRule = new TaskConfig();
+        stairLimitedNoRule.setId(9904L);
+        stairLimitedNoRule.setTaskType("STAIR");
+        stairLimitedNoRule.setStockType("LIMITED");
+        stairLimitedNoRule.setTotalStock(6);
+        stairLimitedNoRule.setRuleConfig(null);
+
+        m.invoke(service, stairLimitedNoRule);
+
+        verify(taskStockService, times(1)).save(any());
+    }
+
+    @Test
+    public void getTaskConfigsByIds_shouldFallbackToDb_whenRedisMultiGetThrows() {
+        Set<Long> ids = new LinkedHashSet<>(Arrays.asList(9801L, 9802L));
+        List<String> keys = Arrays.asList(CacheKeys.TASK_CONFIG_PREFIX + 9801L, CacheKeys.TASK_CONFIG_PREFIX + 9802L);
+        when(redisTemplate.opsForValue().multiGet(keys)).thenThrow(new RuntimeException("redis multiGet down"));
+
+        TaskConfig c1 = new TaskConfig(); c1.setId(9801L);
+        TaskConfig c2 = new TaskConfig(); c2.setId(9802L);
+        when(mapper.selectBatchIds(anySet())).thenReturn(Arrays.asList(c1, c2));
+
+        Map<Long, TaskConfig> out = service.getTaskConfigsByIds(ids);
+
+        assertEquals(2, out.size());
+        assertTrue(out.containsKey(9801L));
+        assertTrue(out.containsKey(9802L));
+    }
+
+    @Test
+    public void getTaskIdsByEventType_shouldReturnEmpty_whenDbQueryThrows() {
+        String evt = "EVT_DB_THROW";
+        String key = CacheKeys.EVENT_TASKS_PREFIX + evt;
+        @SuppressWarnings("unchecked")
+        org.springframework.data.redis.core.SetOperations<String, String> setOps = mock(org.springframework.data.redis.core.SetOperations.class);
+        when(redisTemplate.opsForSet()).thenReturn(setOps);
+        when(setOps.members(key)).thenReturn(Collections.emptySet());
+        when(mapper.selectList(any())).thenThrow(new RuntimeException("db down"));
+
+        Set<String> out = service.getTaskIdsByEventType(evt);
+
+        assertNotNull(out);
+        assertTrue(out.isEmpty());
+    }
+
+    @Test
+    public void getTaskConfigsByIds_shouldReturnCurrentResult_whenDbBatchThrows() {
+        Set<Long> ids = new LinkedHashSet<>(Arrays.asList(9811L, 9812L));
+        List<String> keys = Arrays.asList(CacheKeys.TASK_CONFIG_PREFIX + 9811L, CacheKeys.TASK_CONFIG_PREFIX + 9812L);
+
+        TaskConfig fromRedis = new TaskConfig();
+        fromRedis.setId(9811L);
+        when(redisTemplate.opsForValue().multiGet(keys)).thenReturn(Arrays.asList(JSON.toJSONString(fromRedis), null));
+        when(mapper.selectBatchIds(anySet())).thenThrow(new RuntimeException("db batch down"));
+
+        Map<Long, TaskConfig> out = service.getTaskConfigsByIds(ids);
+
+        assertEquals(1, out.size());
+        assertTrue(out.containsKey(9811L));
+    }
+
+    @Test
+    public void getTaskConfig_shouldThrow_whenRedisReadThrows() {
+        Long id = 9821L;
+        String key = CacheKeys.TASK_CONFIG_PREFIX + id;
+        when(valueOps.get(key)).thenThrow(new RuntimeException("redis get fail"));
+
+        assertThrows(RuntimeException.class, () -> service.getTaskConfig(id));
+        verify(mapper, never()).selectById(anyLong());
+    }
+
+    @Test
+    public void refreshTaskConfig_shouldInvalidateLocalCache_whenDbMissing() throws Exception {
+        Long id = 9822L;
+        String key = CacheKeys.TASK_CONFIG_PREFIX + id;
+        when(valueOps.get(key)).thenReturn(null);
+        when(mapper.selectById(id)).thenReturn(null);
+
+        java.lang.reflect.Field cacheField = TaskConfigServiceImpl.class.getDeclaredField("localTaskConfigCache");
+        cacheField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Cache<Long, TaskConfig> localCache = (Cache<Long, TaskConfig>) cacheField.get(service);
+        TaskConfig cached = new TaskConfig();
+        cached.setId(id);
+        localCache.put(id, cached);
+
+        service.refreshTaskConfig(id);
+
+        assertNull(localCache.getIfPresent(id));
+        verify(valueOps, never()).set(eq(key), anyString(), anyLong(), any());
+    }
+
+    @Test
+    public void delegateMethods_shouldCoverSelectAndSearchBranches() {
+        TaskConfig row = new TaskConfig();
+        row.setId(99001L);
+        when(mapper.selectByTaskName("abc")).thenReturn(List.of(row));
+        assertEquals(1, service.selectByTaskName("abc").size());
+
+        Page<TaskConfig> p1 = new Page<>(1, 10);
+        when(mapper.selectByTaskTypePage(eq("ACCUMULATE"), eq(p1))).thenReturn(List.of(row));
+        Page<TaskConfig> typeOut = service.selectByTaskTypePage(p1, "ACCUMULATE");
+        assertEquals(1, typeOut.getRecords().size());
+
+        Page<TaskConfig> p2 = new Page<>(1, 10);
+        when(mapper.selectByStatusPage(eq(1), eq(p2))).thenReturn(List.of(row));
+        Page<TaskConfig> statusOut = service.selectByStatusPage(p2, 1);
+        assertEquals(1, statusOut.getRecords().size());
+
+        Page<TaskConfig> p3 = new Page<>(1, 10);
+        when(mapper.selectPage(eq(p3), any())).thenReturn(p3);
+        Page<TaskConfig> searchOut = service.searchByConditions("name", "ACCUMULATE", 1, "POINT", p3);
+        assertSame(p3, searchOut);
+    }
+
+    @Test
+    public void invalidateTaskConfig_shouldRemoveEntryFromLocalCache() throws Exception {
+        Long id = 99002L;
+        java.lang.reflect.Field cacheField = TaskConfigServiceImpl.class.getDeclaredField("localTaskConfigCache");
+        cacheField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Cache<Long, TaskConfig> localCache = (Cache<Long, TaskConfig>) cacheField.get(service);
+        TaskConfig cached = new TaskConfig();
+        cached.setId(id);
+        localCache.put(id, cached);
+
+        service.invalidateTaskConfig(id);
+
+        assertNull(localCache.getIfPresent(id));
+    }
+
+    @Test
+    public void save_shouldReturnFalse_whenInsertFails_andSkipSideEffects() {
+        TaskConfig tc = new TaskConfig();
+        tc.setStockType("LIMITED");
+        tc.setRuleConfig("{}");
+        when(mapper.insert(any())).thenReturn(0);
+
+        boolean ok = service.save(tc);
+
+        assertFalse(ok);
+        verify(taskStockService, never()).save(any());
+        verify(taskStockService, never()).deleteById(anyLong());
+        verify(valueOps, never()).set(startsWith(CacheKeys.TASK_CONFIG_PREFIX), anyString(), anyLong(), any());
+        verify(stringRedisTemplate.opsForValue(), never()).set(startsWith("task_config_create_time:"), anyString());
+    }
+
+    @Test
+    public void update_shouldReturnFalse_whenUpdateByIdFails_andSkipSideEffects() {
+        TaskConfig tc = new TaskConfig();
+        tc.setId(9910L);
+        tc.setStockType("LIMITED");
+        tc.setRuleConfig("{}");
+        when(mapper.updateById(any())).thenReturn(0);
+
+        boolean ok = service.update(tc);
+
+        assertFalse(ok);
+        verify(taskStockService, never()).update(any());
+        verify(taskStockService, never()).deleteById(anyLong());
+        verify(valueOps, never()).set(eq(CacheKeys.TASK_CONFIG_PREFIX + 9910L), anyString(), anyLong(), any());
+        verify(stringRedisTemplate.opsForValue(), never()).set(startsWith("task_config_create_time:"), anyString());
+    }
+
+    @Test
+    public void evictCacheAfterCommit_shouldDeleteRedisAndLocalCache_whenNoSynchronization() throws Exception {
+        Long id = 9912L;
+        String key = CacheKeys.TASK_CONFIG_PREFIX + id;
+
+        java.lang.reflect.Field cacheField = TaskConfigServiceImpl.class.getDeclaredField("localTaskConfigCache");
+        cacheField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Cache<Long, TaskConfig> localCache = (Cache<Long, TaskConfig>) cacheField.get(service);
+        TaskConfig cached = new TaskConfig();
+        cached.setId(id);
+        localCache.put(id, cached);
+
+        java.lang.reflect.Method evict = TaskConfigServiceImpl.class.getDeclaredMethod("evictCacheAfterCommit", Long.class);
+        evict.setAccessible(true);
+        evict.invoke(service, id);
+
+        verify(redisTemplate, times(1)).delete(key);
+        assertNull(localCache.getIfPresent(id));
+    }
+
+    @Test
+    public void evictCacheAfterCommit_shouldKeepFlow_whenRedisDeleteThrows() throws Exception {
+        Long id = 9911L;
+        String key = CacheKeys.TASK_CONFIG_PREFIX + id;
+        doThrow(new RuntimeException("redis delete fail")).when(redisTemplate).delete(key);
+
+        java.lang.reflect.Method evict = TaskConfigServiceImpl.class.getDeclaredMethod("evictCacheAfterCommit", Long.class);
+        evict.setAccessible(true);
+
+        assertDoesNotThrow(() -> evict.invoke(service, id));
+        verify(redisTemplate, times(1)).delete(key);
+    }
+
+    @Test
+    public void refreshTaskConfig_shouldFallbackToDb_whenRedisJsonInvalid() {
+        Long id = 9913L;
+        String key = CacheKeys.TASK_CONFIG_PREFIX + id;
+        when(valueOps.get(key)).thenReturn("{bad-json");
+
+        TaskConfig db = new TaskConfig();
+        db.setId(id);
+        db.setTaskName("from-db");
+        when(mapper.selectById(id)).thenReturn(db);
+
+        service.refreshTaskConfig(id);
+
+        verify(mapper, times(1)).selectById(id);
+        verify(valueOps, times(1)).set(eq(key), anyString(), eq(60L), eq(TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void searchByConditions_shouldHandleNullAndBlankFilters() {
+        Page<TaskConfig> p = new Page<>(1, 10);
+        when(mapper.selectPage(eq(p), any())).thenReturn(p);
+
+        Page<TaskConfig> out = service.searchByConditions("", null, null, "  ", p);
+
+        assertSame(p, out);
+        verify(mapper, times(1)).selectPage(eq(p), any());
+    }
+
+    @Test
+    public void getTaskConfigsByIds_shouldReturnEmpty_whenDbBatchReturnsNull() {
+        Set<Long> ids = new LinkedHashSet<>(Arrays.asList(9921L, 9922L));
+        List<String> keys = Arrays.asList(CacheKeys.TASK_CONFIG_PREFIX + 9921L, CacheKeys.TASK_CONFIG_PREFIX + 9922L);
+        when(redisTemplate.opsForValue().multiGet(keys)).thenReturn(Arrays.asList(null, null));
+        when(mapper.selectBatchIds(anySet())).thenReturn(null);
+
+        Map<Long, TaskConfig> out = service.getTaskConfigsByIds(ids);
+
+        assertNotNull(out);
+        assertTrue(out.isEmpty());
+    }
+
+    @Test
+    public void getTaskConfigsByIds_shouldReturnEmpty_whenDbBatchReturnsEmptyList() {
+        Set<Long> ids = new LinkedHashSet<>(Arrays.asList(9931L, 9932L));
+        List<String> keys = Arrays.asList(CacheKeys.TASK_CONFIG_PREFIX + 9931L, CacheKeys.TASK_CONFIG_PREFIX + 9932L);
+        when(redisTemplate.opsForValue().multiGet(keys)).thenReturn(Arrays.asList(null, null));
+        when(mapper.selectBatchIds(anySet())).thenReturn(Collections.emptyList());
+
+        Map<Long, TaskConfig> out = service.getTaskConfigsByIds(ids);
+
+        assertNotNull(out);
+        assertTrue(out.isEmpty());
+    }
+
+    @Test
+    public void createTaskStock_shouldNoop_whenStockTypeNullOrUnlimited() throws Exception {
+        java.lang.reflect.Method m = TaskConfigServiceImpl.class.getDeclaredMethod("createTaskStock", TaskConfig.class);
+        m.setAccessible(true);
+
+        TaskConfig nullStockType = new TaskConfig();
+        nullStockType.setId(9941L);
+        nullStockType.setTaskType("ACCUMULATE");
+        nullStockType.setStockType(null);
+        nullStockType.setTotalStock(3);
+
+        TaskConfig unlimited = new TaskConfig();
+        unlimited.setId(9942L);
+        unlimited.setTaskType("ACCUMULATE");
+        unlimited.setStockType("UNLIMITED");
+        unlimited.setTotalStock(3);
+
+        m.invoke(service, nullStockType);
+        m.invoke(service, unlimited);
+
+        verify(taskStockService, never()).save(any());
+        verify(taskStockService, never()).deleteById(anyLong());
+    }
+
+    @Test
+    public void getTaskConfig_shouldReturnDb_whenRedisWriteBackThrows() throws Exception {
+        Long id = 9951L;
+        String key = CacheKeys.TASK_CONFIG_PREFIX + id;
+        when(valueOps.get(key)).thenReturn(null);
+        TaskConfig db = new TaskConfig();
+        db.setId(id);
+        db.setTaskName("db-fallback");
+        when(mapper.selectById(id)).thenReturn(db);
+        doThrow(new RuntimeException("redis set fail"))
+                .when(valueOps).set(eq(key), anyString(), eq(60L), eq(TimeUnit.SECONDS));
+
+        TaskConfig out = service.getTaskConfig(id);
+
+        assertNotNull(out);
+        assertEquals(id, out.getId());
+
+        java.lang.reflect.Field cacheField = TaskConfigServiceImpl.class.getDeclaredField("localTaskConfigCache");
+        cacheField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Cache<Long, TaskConfig> localCache = (Cache<Long, TaskConfig>) cacheField.get(service);
+        assertNotNull(localCache.getIfPresent(id));
+    }
+
+    @Test
+    public void refreshTaskConfig_shouldKeepLocalCache_whenRedisWriteBackThrows() throws Exception {
+        Long id = 9961L;
+        String key = CacheKeys.TASK_CONFIG_PREFIX + id;
+        when(valueOps.get(key)).thenReturn(null);
+        TaskConfig db = new TaskConfig();
+        db.setId(id);
+        db.setTaskName("db-refresh");
+        when(mapper.selectById(id)).thenReturn(db);
+        doThrow(new RuntimeException("redis set fail"))
+                .when(valueOps).set(eq(key), anyString(), eq(60L), eq(TimeUnit.SECONDS));
+
+        service.refreshTaskConfig(id);
+
+        java.lang.reflect.Field cacheField = TaskConfigServiceImpl.class.getDeclaredField("localTaskConfigCache");
+        cacheField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Cache<Long, TaskConfig> localCache = (Cache<Long, TaskConfig>) cacheField.get(service);
+        assertNotNull(localCache.getIfPresent(id));
+    }
+
+    @Test
+    public void writeCacheAfterCommit_shouldKeepFlow_whenNoSynchronizationAndRedisWriteThrows() throws Exception {
+        Long id = 9971L;
+        TaskConfig tc = new TaskConfig();
+        tc.setId(id);
+        tc.setTaskName("no-sync-write");
+
+        doThrow(new RuntimeException("redis set fail"))
+                .when(valueOps).set(startsWith(CacheKeys.TASK_CONFIG_PREFIX), anyString(), eq(60L), eq(TimeUnit.SECONDS));
+
+        java.lang.reflect.Method write = TaskConfigServiceImpl.class.getDeclaredMethod("writeCacheAfterCommit", TaskConfig.class);
+        write.setAccessible(true);
+        assertDoesNotThrow(() -> write.invoke(service, tc));
+
+        java.lang.reflect.Field cacheField = TaskConfigServiceImpl.class.getDeclaredField("localTaskConfigCache");
+        cacheField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Cache<Long, TaskConfig> localCache = (Cache<Long, TaskConfig>) cacheField.get(service);
+        assertNotNull(localCache.getIfPresent(id));
+    }
+
+    @Test
+    public void deleteById_shouldReturnFalse_whenMapperDeleteFails() {
+        when(mapper.deleteById(9981L)).thenReturn(0);
+
+        boolean ok = service.deleteById(9981L);
+
+        assertFalse(ok);
+        verify(taskStockService, never()).deleteById(anyLong());
+        verify(redisTemplate, never()).delete(anyString());
+    }
+
+    @Test
+    public void deleteById_shouldDeleteStockAndEvictCacheImmediately_whenNoTransaction() throws Exception {
+        Long id = 9982L;
+        String key = CacheKeys.TASK_CONFIG_PREFIX + id;
+        when(mapper.deleteById(id)).thenReturn(1);
+
+        java.lang.reflect.Field cacheField = TaskConfigServiceImpl.class.getDeclaredField("localTaskConfigCache");
+        cacheField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Cache<Long, TaskConfig> localCache = (Cache<Long, TaskConfig>) cacheField.get(service);
+        TaskConfig cached = new TaskConfig();
+        cached.setId(id);
+        localCache.put(id, cached);
+
+        boolean ok = service.deleteById(id);
+
+        assertTrue(ok);
+        verify(taskStockService, times(1)).deleteById(id);
+        verify(redisTemplate, times(1)).delete(key);
+        assertNull(localCache.getIfPresent(id));
+    }
+
+    @Test
+    public void deleteById_shouldRunSideEffectsAfterCommit_whenTransactionActive() {
+        Long id = 9983L;
+        String key = CacheKeys.TASK_CONFIG_PREFIX + id;
+        when(mapper.deleteById(id)).thenReturn(1);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            boolean ok = service.deleteById(id);
+            assertTrue(ok);
+            verify(taskStockService, never()).deleteById(id);
+            verify(redisTemplate, never()).delete(key);
+
+            for (org.springframework.transaction.support.TransactionSynchronization sync : TransactionSynchronizationManager.getSynchronizations()) {
+                sync.afterCommit();
+            }
+
+            verify(taskStockService, times(1)).deleteById(id);
+            verify(redisTemplate, times(1)).delete(key);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    public void deleteById_shouldKeepSuccess_whenSideEffectsThrow_noTransaction() {
+        Long id = 9984L;
+        String key = CacheKeys.TASK_CONFIG_PREFIX + id;
+        when(mapper.deleteById(id)).thenReturn(1);
+        doThrow(new RuntimeException("stock delete fail")).when(taskStockService).deleteById(id);
+        doThrow(new RuntimeException("redis delete fail")).when(redisTemplate).delete(key);
+
+        boolean ok = service.deleteById(id);
+
+        assertTrue(ok);
+        verify(taskStockService, times(1)).deleteById(id);
+        verify(redisTemplate, times(1)).delete(key);
+    }
+
+    @Test
+    public void deleteById_shouldKeepSuccess_whenSideEffectsThrow_afterCommit() {
+        Long id = 9985L;
+        String key = CacheKeys.TASK_CONFIG_PREFIX + id;
+        when(mapper.deleteById(id)).thenReturn(1);
+        doThrow(new RuntimeException("stock delete fail")).when(taskStockService).deleteById(id);
+        doThrow(new RuntimeException("redis delete fail")).when(redisTemplate).delete(key);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            boolean ok = service.deleteById(id);
+            assertTrue(ok);
+
+            for (org.springframework.transaction.support.TransactionSynchronization sync : TransactionSynchronizationManager.getSynchronizations()) {
+                assertDoesNotThrow(sync::afterCommit);
+            }
+
+            verify(taskStockService, times(1)).deleteById(id);
+            verify(redisTemplate, times(1)).delete(key);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 }
