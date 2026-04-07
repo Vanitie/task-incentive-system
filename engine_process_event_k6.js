@@ -1,11 +1,12 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import exec from 'k6/execution';
+import { Counter, Rate, Trend } from 'k6/metrics';
 
 // modes:
-// 1) TEST_MODE=baseline  -> µ¥½Ó¿Úºã¶¨ËÙÂÊÑ¹²â£¨Ä¬ÈÏ£©
-// 2) TEST_MODE=compare   -> Í¬²½/Òì²½²¢ÐÐ¶Ô±È£¨¸÷Õ¼Ò»°ëËÙÂÊ£©
-// 3) TEST_MODE=max       -> Öð¼¶ÅÀÆÂÕÒ¼«ÏÞQPS
+// 1) TEST_MODE=baseline  -> ï¿½ï¿½ï¿½Ó¿Úºã¶¨ï¿½ï¿½ï¿½ï¿½Ñ¹ï¿½â£¨Ä¬ï¿½Ï£ï¿½
+// 2) TEST_MODE=compare   -> Í¬ï¿½ï¿½/ï¿½ì²½ï¿½ï¿½ï¿½Ð¶Ô±È£ï¿½ï¿½ï¿½Õ¼Ò»ï¿½ï¿½ï¿½ï¿½ï¿½Ê£ï¿½
+// 3) TEST_MODE=max       -> ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ò¼ï¿½ï¿½ï¿½QPS
 
 const TEST_MODE = __ENV.TEST_MODE || 'baseline';
 const TARGET_MODE = __ENV.TARGET_MODE || 'async'; // async|sync|noop
@@ -13,7 +14,33 @@ const RATE = Number(__ENV.RATE || 200);
 const PRE_VUS = Number(__ENV.PRE_VUS || 800);
 const MAX_VUS = Number(__ENV.MAX_VUS || 12000);
 const DURATION = __ENV.DURATION || '3m';
-const MAX_STAGES_JSON = __ENV.MAX_STAGES_JSON || '[{"target":1000,"duration":"1m"},{"target":2000,"duration":"1m"},{"target":3000,"duration":"1m"},{"target":4000,"duration":"1m"},{"target":5000,"duration":"1m"},{"target":6000,"duration":"1m"},{"target":7000,"duration":"1m"},{"target":8000,"duration":"1m"},{"target":9000,"duration":"1m"},{"target":10000,"duration":"1m"}]';
+const MAX_STAGES_JSON = __ENV.MAX_STAGES_JSON || '[{"target":6000,"duration":"1m"},{"target":7000,"duration":"1m"},{"target":8000,"duration":"1m"}]';
+
+const TURNING_INJECT_RATIO = Number(__ENV.TURNING_INJECT_RATIO || 0.95);
+const TURNING_BIZ_SUCCESS_RATE = Number(__ENV.TURNING_BIZ_SUCCESS_RATE || 0.995);
+const TURNING_P95_MS = Number(__ENV.TURNING_P95_MS || 500);
+
+const ASYNC_BIZ_SUCCESS_CODES = String(__ENV.ASYNC_BIZ_SUCCESS_CODES || '200,202')
+  .split(',')
+  .map((s) => Number(s.trim()))
+  .filter((n) => Number.isFinite(n));
+const ASYNC_ACCEPTED_CODES = String(__ENV.ASYNC_ACCEPTED_CODES || '200,202,503')
+  .split(',')
+  .map((s) => Number(s.trim()))
+  .filter((n) => Number.isFinite(n));
+
+const biz_success_reqs = new Counter('biz_success_reqs');
+const biz_accepted_reqs = new Counter('biz_accepted_reqs');
+const biz_fail_reqs = new Counter('biz_fail_reqs');
+const biz_degraded_reqs = new Counter('biz_degraded_reqs');
+const status_503_reqs = new Counter('status_503_reqs');
+const biz_success_rate = new Rate('biz_success_rate');
+const biz_accepted_rate = new Rate('biz_accepted_rate');
+const stage_reqs = new Counter('stage_reqs');
+const stage_biz_success_reqs = new Counter('stage_biz_success_reqs');
+const stage_accepted_reqs = new Counter('stage_accepted_reqs');
+const stage_fail_reqs = new Counter('stage_fail_reqs');
+const stage_req_duration = new Trend('stage_req_duration', true);
 
 function parseStages() {
   try {
@@ -21,6 +48,17 @@ function parseStages() {
     if (Array.isArray(parsed) && parsed.length > 0) return parsed;
   } catch (_) {}
   return [{ target: 1000, duration: '1m' }, { target: 3000, duration: '1m' }, { target: 5000, duration: '1m' }, { target: 7000, duration: '1m' }, { target: 9000, duration: '1m' }, { target: 10000, duration: '1m' }];
+}
+
+function parseDurationToSec(duration) {
+  if (!duration || typeof duration !== 'string') return 0;
+  const m = /^\s*(\d+(?:\.\d+)?)\s*([smh])\s*$/i.exec(duration);
+  if (!m) return 0;
+  const value = Number(m[1]);
+  const unit = m[2].toLowerCase();
+  if (unit === 's') return value;
+  if (unit === 'm') return value * 60;
+  return value * 3600;
 }
 
 function buildScenarios() {
@@ -104,6 +142,53 @@ function endpointTypeForScenario() {
   return TARGET_MODE === 'sync' ? 'sync' : 'async';
 }
 
+function stageMeta() {
+  if (TEST_MODE !== 'max') {
+    return { stageIndex: 'na', stageTarget: 'na', stageDurationSec: 0 };
+  }
+  const stages = parseStages();
+  const elapsedSec = exec.instance.currentTestRunDuration / 1000;
+  let acc = 0;
+  for (let i = 0; i < stages.length; i++) {
+    const sec = parseDurationToSec(stages[i].duration);
+    acc += sec;
+    if (elapsedSec <= acc) {
+      return { stageIndex: String(i + 1), stageTarget: String(stages[i].target), stageDurationSec: sec };
+    }
+  }
+  const last = stages[stages.length - 1];
+  return { stageIndex: String(stages.length), stageTarget: String(last.target), stageDurationSec: parseDurationToSec(last.duration) };
+}
+
+function parseTags(text) {
+  const tags = {};
+  if (!text) return tags;
+  text.split(',').forEach((part) => {
+    const idx = part.indexOf(':');
+    if (idx > 0) {
+      const k = part.slice(0, idx).trim();
+      const v = part.slice(idx + 1).trim();
+      tags[k] = v;
+    }
+  });
+  return tags;
+}
+
+function getCount(metric) {
+  if (!metric || !metric.values || typeof metric.values.count !== 'number') return 0;
+  return metric.values.count;
+}
+
+function getRate(metric) {
+  if (!metric || !metric.values || typeof metric.values.rate !== 'number') return 0;
+  return metric.values.rate;
+}
+
+function getP95(metric) {
+  if (!metric || !metric.values || typeof metric.values['p(95)'] !== 'number') return 0;
+  return metric.values['p(95)'];
+}
+
 export default function () {
   const userId = USER_IDS[(__VU + __ITER) % USER_IDS.length];
   const endpointType = endpointTypeForScenario();
@@ -138,17 +223,191 @@ export default function () {
     headers.Authorization = `Bearer ${BEARER_TOKEN}`;
   }
 
-  const reqOptions = { headers, tags: { endpoint_type: endpointType, scenario_name: exec.scenario.name || 'na' } };
+  const meta = stageMeta();
+  const tags = {
+    endpoint_type: endpointType,
+    scenario_name: exec.scenario.name || 'na',
+    stage_index: meta.stageIndex,
+    stage_target: meta.stageTarget,
+  };
+
+  const reqOptions = { headers, tags };
   const res = endpointType === 'noop'
     ? http.get(`${BASE_URL}${endpoint}`, reqOptions)
     : http.post(`${BASE_URL}${endpoint}`, JSON.stringify(payload), reqOptions);
-  const ok = endpointType === 'async' ? [200, 202, 503].includes(res.status) : [200].includes(res.status);
+
+  const statusCode = Number(res.status || 0);
+  const accepted = endpointType === 'async'
+    ? ASYNC_ACCEPTED_CODES.includes(statusCode)
+    : statusCode === 200;
+  const bizSuccess = endpointType === 'async'
+    ? ASYNC_BIZ_SUCCESS_CODES.includes(statusCode)
+    : statusCode === 200;
+  const degraded = accepted && !bizSuccess;
+
   check(res, {
-    'status_ok': () => ok,
+    status_ok: () => accepted,
   });
+
+  biz_success_reqs.add(bizSuccess ? 1 : 0, tags);
+  biz_accepted_reqs.add(accepted ? 1 : 0, tags);
+  biz_fail_reqs.add(accepted ? 0 : 1, tags);
+  biz_degraded_reqs.add(degraded ? 1 : 0, tags);
+  biz_success_rate.add(bizSuccess, tags);
+  biz_accepted_rate.add(accepted, tags);
+  if (statusCode === 503) {
+    status_503_reqs.add(1, tags);
+  }
+
+  stage_reqs.add(1, tags);
+  stage_biz_success_reqs.add(bizSuccess ? 1 : 0, tags);
+  stage_accepted_reqs.add(accepted ? 1 : 0, tags);
+  stage_fail_reqs.add(accepted ? 0 : 1, tags);
+  stage_req_duration.add(res.timings.duration, tags);
+
   sleep(Number(__ENV.SLEEP_SEC || 0));
 }
 
 export function handleSummary(data) {
-  return { 'k6-summary.json': JSON.stringify(data, null, 2) }; 
+  const metrics = data.metrics || {};
+  const totalDurationSec = (data.state && data.state.testRunDurationMs ? data.state.testRunDurationMs : 0) / 1000;
+  const totalReqCount = getCount(metrics.http_reqs);
+  const totalReqRate = getRate(metrics.http_reqs);
+  const bizSuccessCount = getCount(metrics.biz_success_reqs);
+  const bizAcceptedCount = getCount(metrics.biz_accepted_reqs);
+  const bizFailCount = getCount(metrics.biz_fail_reqs);
+  const degradedCount = getCount(metrics.biz_degraded_reqs);
+  const status503Count = getCount(metrics.status_503_reqs);
+
+  const bizSuccessQps = totalDurationSec > 0 ? bizSuccessCount / totalDurationSec : 0;
+  const bizAcceptedQps = totalDurationSec > 0 ? bizAcceptedCount / totalDurationSec : 0;
+
+  const stages = parseStages();
+  const stageDurationSecMap = {};
+  for (let i = 0; i < stages.length; i++) {
+    stageDurationSecMap[String(i + 1)] = parseDurationToSec(stages[i].duration);
+  }
+
+  const stageStatsMap = {};
+  Object.keys(metrics).forEach((name) => {
+    const m = /^(stage_reqs|stage_biz_success_reqs|stage_accepted_reqs|stage_fail_reqs|stage_req_duration)\{(.+)\}$/.exec(name);
+    if (!m) return;
+    const metricName = m[1];
+    const tags = parseTags(m[2]);
+    const stageIndex = tags.stage_index;
+    if (!stageIndex || stageIndex === 'na') return;
+    if (!stageStatsMap[stageIndex]) {
+      stageStatsMap[stageIndex] = {
+        stage_index: Number(stageIndex),
+        stage_target: Number(tags.stage_target || 0),
+        stage_duration_sec: stageDurationSecMap[stageIndex] || 0,
+        request_count: 0,
+        biz_success_count: 0,
+        accepted_count: 0,
+        fail_count: 0,
+        p95_ms: 0,
+      };
+    }
+    const slot = stageStatsMap[stageIndex];
+    if (metricName === 'stage_reqs') slot.request_count = getCount(metrics[name]);
+    if (metricName === 'stage_biz_success_reqs') slot.biz_success_count = getCount(metrics[name]);
+    if (metricName === 'stage_accepted_reqs') slot.accepted_count = getCount(metrics[name]);
+    if (metricName === 'stage_fail_reqs') slot.fail_count = getCount(metrics[name]);
+    if (metricName === 'stage_req_duration') slot.p95_ms = getP95(metrics[name]);
+  });
+
+  const stageMetrics = Object.keys(stageStatsMap)
+    .sort((a, b) => Number(a) - Number(b))
+    .map((key) => {
+      const s = stageStatsMap[key];
+      const duration = s.stage_duration_sec > 0 ? s.stage_duration_sec : 1;
+      const achievedQps = s.request_count / duration;
+      const successRate = s.request_count > 0 ? s.biz_success_count / s.request_count : 0;
+      const acceptedRate = s.request_count > 0 ? s.accepted_count / s.request_count : 0;
+      const injectionRatio = s.stage_target > 0 ? achievedQps / s.stage_target : 0;
+      const stable = injectionRatio >= TURNING_INJECT_RATIO
+        && successRate >= TURNING_BIZ_SUCCESS_RATE
+        && s.p95_ms <= TURNING_P95_MS;
+      return {
+        stage_index: s.stage_index,
+        stage_target: s.stage_target,
+        stage_duration_sec: s.stage_duration_sec,
+        achieved_qps: achievedQps,
+        injection_ratio: injectionRatio,
+        biz_success_rate: successRate,
+        accepted_rate: acceptedRate,
+        p95_ms: s.p95_ms,
+        stable,
+      };
+    });
+
+  let turningPoint = null;
+  let limitQps = 0;
+  stageMetrics.forEach((s) => {
+    if (s.stable && s.achieved_qps > limitQps) {
+      limitQps = s.achieved_qps;
+    }
+    if (!turningPoint && !s.stable && s.stage_target > 0) {
+      turningPoint = {
+        stage_index: s.stage_index,
+        stage_target: s.stage_target,
+        achieved_qps: s.achieved_qps,
+        injection_ratio: s.injection_ratio,
+        biz_success_rate: s.biz_success_rate,
+        p95_ms: s.p95_ms,
+      };
+    }
+  });
+  if (limitQps <= 0) {
+    limitQps = bizSuccessQps;
+  }
+
+  const localOptimistic = BASE_URL.indexOf('127.0.0.1') >= 0 || BASE_URL.indexOf('localhost') >= 0 || BASE_URL.indexOf('::1') >= 0;
+  const optimismReasons = [];
+  if (localOptimistic) {
+    optimismReasons.push('load generator and target service share loopback network');
+    optimismReasons.push('no real switch/router RTT or packet loss in path');
+    optimismReasons.push('resource contention can hide real cross-host limits');
+  }
+
+  const extendedSummary = {
+    analysis_version: 'v2',
+    mode: {
+      test_mode: TEST_MODE,
+      target_mode: TARGET_MODE,
+      base_url: BASE_URL,
+    },
+    qps: {
+      iterations_rate: getRate(metrics.iterations),
+      http_reqs_rate: totalReqRate,
+      biz_success_qps: bizSuccessQps,
+      biz_accepted_qps: bizAcceptedQps,
+      estimated_limit_qps: limitQps,
+    },
+    totals: {
+      total_requests: totalReqCount,
+      biz_success_count: bizSuccessCount,
+      biz_accepted_count: bizAcceptedCount,
+      biz_fail_count: bizFailCount,
+      degraded_count: degradedCount,
+      status_503_count: status503Count,
+      dropped_iterations: getCount(metrics.dropped_iterations),
+    },
+    turning_point: turningPoint,
+    stage_metrics: stageMetrics,
+    turning_rule: {
+      min_injection_ratio: TURNING_INJECT_RATIO,
+      min_biz_success_rate: TURNING_BIZ_SUCCESS_RATE,
+      max_p95_ms: TURNING_P95_MS,
+    },
+    local_run_assessment: {
+      is_local_optimistic: localOptimistic,
+      reasons: optimismReasons,
+    },
+  };
+
+  return {
+    'k6-summary.json': JSON.stringify(data, null, 2),
+    'k6-summary-extended.json': JSON.stringify(extendedSummary, null, 2),
+  };
 }
