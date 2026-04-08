@@ -1,0 +1,35 @@
+{
+  "analysis_version": "v2",
+  "mode": {
+    "test_mode": "max",
+    "target_mode": "async",
+    "base_url": "http://192.168.50.10:8080"
+  },
+  "qps": {
+    "iterations_rate": 5746.029190769642,
+    "http_reqs_rate": 5746.029190769642,
+    "biz_success_qps": 5746.029190769643,
+    "biz_accepted_qps": 5746.029190769643,
+    "estimated_limit_qps": 5746.029190769643
+  },
+  "totals": {
+    "total_requests": 1037438,
+    "biz_success_count": 1037438,
+    "biz_accepted_count": 1037438,
+    "biz_fail_count": 0,
+    "degraded_count": 0,
+    "status_503_count": 0,
+    "dropped_iterations": 12439
+  },
+  "turning_point": null,
+  "stage_metrics": [],
+  "turning_rule": {
+      "min_injection_ratio": 0.95,
+      "min_biz_success_rate": 0.995,
+      "max_p95_ms": 500
+    },
+  "local_run_assessment": {
+      "is_local_optimistic": false,
+      "reasons": []
+    }
+}
