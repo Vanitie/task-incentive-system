@@ -31,7 +31,7 @@ public class EngineChainSqlGenerator {
     private static final String DEFAULT_BCRYPT = "$2a$10$7EqJtq98hPqEX7fNZaFWoOQ3z6M4s5xj8gJHjQ2j1bVjAqLr7Qw4K";
     private static final String DEFAULT_K6_FILE = "engine_process_event_k6.js";
     private static final Pattern K6_BEARER_TOKEN_LINE = Pattern.compile("const\\s+BEARER_TOKEN\\s*=\\s*__ENV\\.BEARER_TOKEN\\s*\\|\\|\\s*'[^']*';");
-    private static final Pattern K6_USER_IDS_LINE = Pattern.compile("const\\s+USER_IDS\\s*=\\s*\\[[^\\]]*\\];");
+    private static final Pattern K6_USER_IDS_LINE = Pattern.compile("const\\s+USER_IDS\\s*=\\s*\\[[^]]*\\];");
 
     private static final int DAYS = 7;
     // 增大用户池，降低小样本导致的热点冲突与压测失真。
@@ -452,20 +452,28 @@ public class EngineChainSqlGenerator {
             out.println("SET FOREIGN_KEY_CHECKS = 0;");
             out.println();
 
-            out.println("TRUNCATE TABLE reward_freeze_record;");
-            out.println("TRUNCATE TABLE risk_decision_log;");
-            out.println("TRUNCATE TABLE risk_rule;");
-            out.println("TRUNCATE TABLE risk_quota;");
-            out.println("TRUNCATE TABLE risk_blacklist;");
-            out.println("TRUNCATE TABLE risk_whitelist;");
-            out.println("TRUNCATE TABLE user_badge;");
-            out.println("TRUNCATE TABLE user_reward_record;");
-            out.println("TRUNCATE TABLE user_action_log;");
-            out.println("TRUNCATE TABLE user_task_instance;");
-            out.println("TRUNCATE TABLE task_stock;");
-            out.println("TRUNCATE TABLE task_config;");
-            out.println("TRUNCATE TABLE badge;");
-            out.println("TRUNCATE TABLE `user`;");
+            String[] resetTables = {
+                    "badge",
+                    "reward_freeze_record",
+                    "risk_decision_log",
+                    "risk_rule",
+                    "risk_quota",
+                    "risk_blacklist",
+                    "risk_whitelist",
+                    "user_badge",
+                    "user_reward_record",
+                    "user",
+                    "task_config",
+                    "user_action_log",
+                    "user_task_instance",
+                    "task_stock"
+            };
+            for (String table : resetTables) {
+                out.println("TRUNCATE TABLE " + table + ";");
+                out.println("ANALYZE TABLE " + table + ";");
+                out.println("OPTIMIZE TABLE " + table + ";");
+            }
+            out.println("DELETE FROM `user`;");
             out.println();
 
             for (UserSeed u : users) {
@@ -1226,7 +1234,3 @@ public class EngineChainSqlGenerator {
         }
     }
 }
-
-
-
-

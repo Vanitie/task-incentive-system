@@ -291,6 +291,11 @@ function getP95(metric) {
   return metric.values['p(95)'];
 }
 
+function sanitizeModePart(raw, fallback) {
+  const value = typeof raw === 'string' && raw.trim() ? raw.trim().toLowerCase() : fallback;
+  return value.replace(/[^a-z0-9_-]+/g, '_');
+}
+
 export default function () {
   const userId = USER_IDS[(__VU + __ITER) % USER_IDS.length];
   const endpointType = endpointTypeForScenario();
@@ -675,8 +680,13 @@ export function handleSummary(data) {
     },
   };
 
+  const summaryMode = sanitizeModePart(TEST_MODE, 'baseline');
+  const summaryTarget = sanitizeModePart(TARGET_MODE, 'async');
+  const summaryFile = `k6-summary-${summaryMode}-${summaryTarget}.json`;
+  const extendedSummaryFile = `k6-summary-extended-${summaryMode}-${summaryTarget}.json`;
+
   return {
-    'k6-summary.json': JSON.stringify(data, null, 2),
-    'k6-summary-extended.json': JSON.stringify(extendedSummary, null, 2),
+    [summaryFile]: JSON.stringify(data, null, 2),
+    [extendedSummaryFile]: JSON.stringify(extendedSummary, null, 2),
   };
 }
