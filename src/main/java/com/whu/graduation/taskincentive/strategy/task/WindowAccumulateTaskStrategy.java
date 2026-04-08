@@ -1,6 +1,7 @@
 package com.whu.graduation.taskincentive.strategy.task;
 
 import com.alibaba.fastjson.JSON;
+import com.whu.graduation.taskincentive.common.enums.UserTaskStatus;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
 import com.whu.graduation.taskincentive.dto.WindowAccumulateEntry;
@@ -70,7 +71,7 @@ public class WindowAccumulateTaskStrategy implements TaskStrategy {
         instance.setProgress(sum);
 
         if (sum >= rule.getTargetValue()) {
-            instance.setStatus(1);
+            instance.setStatus(UserTaskStatus.COMPLETED.getCode());
             return List.of(1);
         }
 

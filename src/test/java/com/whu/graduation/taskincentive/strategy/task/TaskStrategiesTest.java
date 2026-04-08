@@ -1,6 +1,7 @@
 package com.whu.graduation.taskincentive.strategy.task;
 
 import com.alibaba.fastjson.JSON;
+import com.whu.graduation.taskincentive.common.enums.UserTaskStatus;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
 import com.whu.graduation.taskincentive.dto.ContinuousExtraData;
@@ -28,7 +29,7 @@ public class TaskStrategiesTest {
 
         assertEquals(List.of(1), stages);
         assertEquals(10, instance.getProgress());
-        assertEquals(1, instance.getStatus());
+        assertEquals(UserTaskStatus.COMPLETED.getCode(), instance.getStatus());
     }
 
     @Test
@@ -75,7 +76,7 @@ public class TaskStrategiesTest {
 
         assertEquals(List.of(1), stages);
         assertEquals(10, instance.getProgress());
-        assertEquals(1, instance.getStatus());
+        assertEquals(UserTaskStatus.COMPLETED.getCode(), instance.getStatus());
     }
 
     @Test
@@ -145,9 +146,21 @@ public class TaskStrategiesTest {
         List<Integer> stages = strategy.execute(event(1, LocalDateTime.now()), cfg, instance);
 
         assertEquals(List.of(1), stages);
-        assertEquals(1, instance.getStatus());
+        assertEquals(UserTaskStatus.COMPLETED.getCode(), instance.getStatus());
         ContinuousExtraData parsed = JSON.parseObject(instance.getExtraData(), ContinuousExtraData.class);
         assertEquals(3, parsed.getContinuousDays());
+    }
+
+    @Test
+    public void stair_shouldSetCompleted_whenAllStagesGranted() {
+        StairTaskStrategy strategy = new StairTaskStrategy();
+        TaskConfig cfg = taskConfig("{\"stages\":[10,30,60],\"rewards\":[1,1,1]}");
+        UserTaskInstance instance = instance(59, "{\"grantedStages\":[1,2]}");
+
+        List<Integer> stages = strategy.execute(event(1, LocalDateTime.now()), cfg, instance);
+
+        assertEquals(List.of(3), stages);
+        assertEquals(UserTaskStatus.COMPLETED.getCode(), instance.getStatus());
     }
 
     @Test

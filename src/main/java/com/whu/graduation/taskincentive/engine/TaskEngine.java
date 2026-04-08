@@ -5,6 +5,7 @@ import com.whu.graduation.taskincentive.common.enums.RewardType;
 import com.whu.graduation.taskincentive.common.enums.StockType;
 import com.whu.graduation.taskincentive.common.enums.UserTaskStatus;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
+import com.whu.graduation.taskincentive.dao.entity.UserActionLog;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
 import com.whu.graduation.taskincentive.dto.Reward;
 import com.whu.graduation.taskincentive.event.UserEvent;
@@ -16,6 +17,9 @@ import com.whu.graduation.taskincentive.service.TaskConfigService;
 import com.whu.graduation.taskincentive.constant.CacheKeys;
 import com.whu.graduation.taskincentive.dto.risk.RiskDecisionRequest;
 import com.whu.graduation.taskincentive.dto.risk.RiskDecisionResponse;
+import com.whu.graduation.taskincentive.mq.UserActionLogPersistMessage;
+import com.whu.graduation.taskincentive.mq.UserActionLogPersistProducer;
+import com.whu.graduation.taskincentive.service.UserActionLogService;
 import com.whu.graduation.taskincentive.service.risk.RiskDecisionService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,10 +62,18 @@ public class TaskEngine {
     @Autowired
     private RedisTemplate<String, String> redisTemplate;
 
+    @Autowired
+    private UserActionLogPersistProducer userActionLogPersistProducer;
+
+    @Autowired
+    private UserActionLogService userActionLogService;
+
     /**
      * 处理用户事件：TaskEngine 只负责编排，缓存/Redis/Kafka 交由相应的 Service 处理
      */
     public void processEvent(UserEvent event) {
+        persistUserActionLogAsync(event);
+
         String eventKey = CacheKeys.EVENT_TASKS_PREFIX + event.getEventType();
         String userKey = "user:accepted:" + event.getUserId();
 
@@ -132,6 +144,8 @@ public class TaskEngine {
      * 对照链路：不使用 Redis 缓存与 Kafka 解耦，全部走 DB 同步处理。
      */
     public void processEventDirect(UserEvent event) {
+        persistUserActionLogDirect(event);
+
         Set<String> taskIdStrs = taskConfigService.getTaskIdsByEventTypeDirect(event.getEventType());
         if (taskIdStrs == null || taskIdStrs.isEmpty()) return;
 
@@ -380,5 +394,49 @@ public class TaskEngine {
             normalized = normalized.substring("REWARD_".length());
         }
         return normalized;
+    }
+
+    private void persistUserActionLogAsync(UserEvent event) {
+        UserActionLog actionLog = buildActionLog(event);
+        if (actionLog == null) {
+            return;
+        }
+        try {
+            UserActionLogPersistMessage msg = UserActionLogPersistMessage.builder()
+                    .actionLog(actionLog)
+                    .build();
+            String userKey = event.getUserId() == null ? "0" : String.valueOf(event.getUserId());
+            userActionLogPersistProducer.send(userKey, msg);
+        } catch (Exception e) {
+            log.warn("async user action log persist send failed, userId={}, eventType={}", event.getUserId(), event.getEventType(), e);
+        }
+    }
+
+    private void persistUserActionLogDirect(UserEvent event) {
+        UserActionLog actionLog = buildActionLog(event);
+        if (actionLog == null) {
+            return;
+        }
+        try {
+            userActionLogService.save(actionLog);
+        } catch (Exception e) {
+            log.warn("direct user action log persist failed, userId={}, eventType={}", event.getUserId(), event.getEventType(), e);
+        }
+    }
+
+    private UserActionLog buildActionLog(UserEvent event) {
+        if (event == null || event.getUserId() == null || event.getEventType() == null || event.getEventType().isEmpty()) {
+            return null;
+        }
+        int actionValue = event.getValue() == null ? 0 : event.getValue();
+        Date actionTime = event.getTime() == null
+                ? new Date()
+                : Date.from(event.getTime().atZone(ZoneId.systemDefault()).toInstant());
+        return UserActionLog.builder()
+                .userId(event.getUserId())
+                .actionType(event.getEventType())
+                .actionValue(actionValue)
+                .createTime(actionTime)
+                .build();
     }
 }

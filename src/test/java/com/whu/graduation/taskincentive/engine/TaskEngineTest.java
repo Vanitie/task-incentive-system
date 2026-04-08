@@ -1,13 +1,16 @@
 package com.whu.graduation.taskincentive.engine;
 
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
+import com.whu.graduation.taskincentive.dao.entity.UserActionLog;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
 import com.whu.graduation.taskincentive.dto.Reward;
 import com.whu.graduation.taskincentive.dto.risk.RiskDecisionRequest;
 import com.whu.graduation.taskincentive.dto.risk.RiskDecisionResponse;
 import com.whu.graduation.taskincentive.event.UserEvent;
+import com.whu.graduation.taskincentive.mq.UserActionLogPersistProducer;
 import com.whu.graduation.taskincentive.service.RewardService;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
+import com.whu.graduation.taskincentive.service.UserActionLogService;
 import com.whu.graduation.taskincentive.service.UserTaskInstanceService;
 import com.whu.graduation.taskincentive.service.risk.RiskDecisionService;
 import com.whu.graduation.taskincentive.strategy.stock.StockStrategy;
@@ -50,6 +53,8 @@ public class TaskEngineTest {
     private RiskDecisionService riskDecisionService;
     private RedisTemplate<String, String> redisTemplate;
     private SetOperations<String, String> setOperations;
+    private UserActionLogPersistProducer userActionLogPersistProducer;
+    private UserActionLogService userActionLogService;
 
     @BeforeEach
     public void setUp() throws Exception {
@@ -63,6 +68,8 @@ public class TaskEngineTest {
         riskDecisionService = org.mockito.Mockito.mock(RiskDecisionService.class);
         redisTemplate = org.mockito.Mockito.mock(RedisTemplate.class);
         setOperations = org.mockito.Mockito.mock(SetOperations.class);
+        userActionLogPersistProducer = org.mockito.Mockito.mock(UserActionLogPersistProducer.class);
+        userActionLogService = org.mockito.Mockito.mock(UserActionLogService.class);
 
         Map<String, TaskStrategy> taskStrategyMap = new HashMap<>();
         taskStrategyMap.put("ACCUMULATE", taskStrategy);
@@ -76,6 +83,8 @@ public class TaskEngineTest {
         setField("rewardService", rewardService);
         setField("riskDecisionService", riskDecisionService);
         setField("redisTemplate", redisTemplate);
+        setField("userActionLogPersistProducer", userActionLogPersistProducer);
+        setField("userActionLogService", userActionLogService);
 
         when(redisTemplate.opsForSet()).thenReturn(setOperations);
     }
@@ -99,6 +108,8 @@ public class TaskEngineTest {
         verify(rewardService, times(1)).grantReward(anyLong(), rewardCaptor.capture());
         assertEquals(20, rewardCaptor.getValue().getAmount());
         assertEquals(1, rewardCaptor.getValue().getStageIndex());
+        verify(userActionLogPersistProducer, times(1)).send(any(String.class), any());
+        verify(userActionLogService, never()).save(any(UserActionLog.class));
         verify(instanceService, times(1)).updateAndPublish(instance);
     }
 
@@ -128,6 +139,8 @@ public class TaskEngineTest {
         verify(riskDecisionService, never()).evaluate(any());
         verify(rewardService, times(1)).grantRewardDirect(anyLong(), any(Reward.class));
         verify(rewardService, never()).grantReward(anyLong(), any(Reward.class));
+        verify(userActionLogService, times(1)).save(any(UserActionLog.class));
+        verify(userActionLogPersistProducer, never()).send(any(String.class), any());
         verify(setOperations, never()).intersect(any(String.class), any(String.class));
     }
 

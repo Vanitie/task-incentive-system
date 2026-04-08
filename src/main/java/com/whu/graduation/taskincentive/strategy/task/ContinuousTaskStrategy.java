@@ -1,6 +1,7 @@
 package com.whu.graduation.taskincentive.strategy.task;
 
 import com.alibaba.fastjson.JSON;
+import com.whu.graduation.taskincentive.common.enums.UserTaskStatus;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
 import com.whu.graduation.taskincentive.dto.ContinuousExtraData;
@@ -59,7 +60,7 @@ public class ContinuousTaskStrategy implements TaskStrategy {
         int targetDays = rule == null || rule.getTargetDays() == null ? Integer.MAX_VALUE : rule.getTargetDays();
 
         if (continuous >= targetDays) {
-            instance.setStatus(1);
+            instance.setStatus(UserTaskStatus.COMPLETED.getCode());
             return List.of(1);
         }
 

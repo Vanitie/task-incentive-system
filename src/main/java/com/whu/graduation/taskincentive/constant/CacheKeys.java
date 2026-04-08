@@ -28,6 +28,9 @@ public final class CacheKeys {
     // 风控决策落库主题
     public static final String RISK_DECISION_PERSIST_TOPIC = "risk-decision-persist-topic";
 
+    // 用户行为日志落库主题（正式链路异步写）
+    public static final String USER_ACTION_LOG_PERSIST_TOPIC = "user-action-log-persist-topic";
+
     // 其它常量
     public static final long DEFAULT_DEDUP_TTL_DAYS = 7L;
 }

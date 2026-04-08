@@ -84,10 +84,12 @@ public class UserActionLogServiceImpl extends ServiceImpl<UserActionLogMapper, U
 
     @Override
     public Long countUserAction(Long userId, String actionType) {
-        return super.count(lambdaQuery()
-                .eq(UserActionLog::getUserId,userId)
-                .eq(UserActionLog::getActionType,actionType)
-        );
+        QueryWrapper<UserActionLog> wrapper = new QueryWrapper<>();
+        wrapper.eq("user_id", userId);
+        if (actionType != null && !actionType.isEmpty()) {
+            wrapper.eq("action_type", actionType);
+        }
+        return this.baseMapper.selectCount(wrapper);
     }
 
     @Override

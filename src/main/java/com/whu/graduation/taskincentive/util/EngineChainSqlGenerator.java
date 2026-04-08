@@ -34,8 +34,9 @@ public class EngineChainSqlGenerator {
     private static final Pattern K6_USER_IDS_LINE = Pattern.compile("const\\s+USER_IDS\\s*=\\s*\\[[^\\]]*\\];");
 
     private static final int DAYS = 7;
-    private static final int USER_MIN_PER_DAY = 80;
-    private static final int USER_MAX_PER_DAY = 150;
+    // 增大用户池，降低小样本导致的热点冲突与压测失真。
+    private static final int USER_MIN_PER_DAY = 800;
+    private static final int USER_MAX_PER_DAY = 1600;
     private static final int TASK_MIN_PER_DAY = 4;
     private static final int TASK_MAX_PER_DAY = 8;
 

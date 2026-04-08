@@ -1,6 +1,7 @@
 package com.whu.graduation.taskincentive.strategy.task;
 
 import com.alibaba.fastjson.JSON;
+import com.whu.graduation.taskincentive.common.enums.UserTaskStatus;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
 import com.whu.graduation.taskincentive.dto.StairExtraData;
@@ -65,6 +66,10 @@ public class StairTaskStrategy implements TaskStrategy {
         StairExtraData newExtra = new StairExtraData();
         newExtra.setGrantedStages(granted);
         instance.setExtraData(JSON.toJSONString(newExtra));
+
+        if (granted.size() >= stages.size()) {
+            instance.setStatus(UserTaskStatus.COMPLETED.getCode());
+        }
 
         return newlyGranted;
     }
