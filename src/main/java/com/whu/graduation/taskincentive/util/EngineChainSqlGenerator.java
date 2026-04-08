@@ -452,20 +452,20 @@ public class EngineChainSqlGenerator {
             out.println("SET FOREIGN_KEY_CHECKS = 0;");
             out.println();
 
-            out.println("DELETE FROM reward_freeze_record;");
-            out.println("DELETE FROM risk_decision_log;");
-            out.println("DELETE FROM risk_rule;");
-            out.println("DELETE FROM risk_quota;");
-            out.println("DELETE FROM risk_blacklist;");
-            out.println("DELETE FROM risk_whitelist;");
-            out.println("DELETE FROM user_badge;");
-            out.println("DELETE FROM user_reward_record;");
-            out.println("DELETE FROM user_action_log;");
-            out.println("DELETE FROM user_task_instance;");
-            out.println("DELETE FROM task_stock;");
-            out.println("DELETE FROM task_config;");
-            out.println("DELETE FROM badge;");
-            out.println("DELETE FROM `user`;");
+            out.println("TRUNCATE TABLE reward_freeze_record;");
+            out.println("TRUNCATE TABLE risk_decision_log;");
+            out.println("TRUNCATE TABLE risk_rule;");
+            out.println("TRUNCATE TABLE risk_quota;");
+            out.println("TRUNCATE TABLE risk_blacklist;");
+            out.println("TRUNCATE TABLE risk_whitelist;");
+            out.println("TRUNCATE TABLE user_badge;");
+            out.println("TRUNCATE TABLE user_reward_record;");
+            out.println("TRUNCATE TABLE user_action_log;");
+            out.println("TRUNCATE TABLE user_task_instance;");
+            out.println("TRUNCATE TABLE task_stock;");
+            out.println("TRUNCATE TABLE task_config;");
+            out.println("TRUNCATE TABLE badge;");
+            out.println("TRUNCATE TABLE `user`;");
             out.println();
 
             for (UserSeed u : users) {
@@ -1226,5 +1226,7 @@ public class EngineChainSqlGenerator {
         }
     }
 }
+
+
 
 
