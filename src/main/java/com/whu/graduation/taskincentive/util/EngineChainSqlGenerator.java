@@ -1,8 +1,10 @@
 package com.whu.graduation.taskincentive.util;
 
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -440,7 +442,7 @@ public class EngineChainSqlGenerator {
     }
 
     private void writeSql(String outputFile) throws IOException {
-        try (PrintWriter out = new PrintWriter(new FileWriter(outputFile))) {
+        try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(Path.of(outputFile), StandardCharsets.UTF_8))) {
             out.println("-- engine-chain demo data generated at " + LocalDateTime.now().format(DT));
             out.println("SET NAMES utf8mb4;");
             out.println("SET FOREIGN_KEY_CHECKS = 0;");
@@ -610,7 +612,7 @@ public class EngineChainSqlGenerator {
                 ? ""
                 : bearerToken.trim();
 
-        try (PrintWriter out = new PrintWriter(new FileWriter(outputFile))) {
+        try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(Path.of(outputFile), StandardCharsets.UTF_8))) {
             String scriptTemplate = """
 import http from 'k6/http';
 import { check, sleep } from 'k6';
@@ -628,7 +630,8 @@ const RATE = Number(__ENV.RATE || 200);
 const PRE_VUS = Number(__ENV.PRE_VUS || 800);
 const MAX_VUS = Number(__ENV.MAX_VUS || 12000);
 const DURATION = __ENV.DURATION || '3m';
-const MAX_STAGES_JSON = __ENV.MAX_STAGES_JSON || '[{"target":6000,"duration":"1m"},{"target":7000,"duration":"1m"},{"target":8000,"duration":"1m"}]';
+const MAX_STAGES_JSON = __ENV.MAX_STAGES_JSON || '[{"target":7000,"duration":"1m"},{"target":8000,"duration":"1m"},{"target":9000,"duration":"1m"},{"target":10000,"duration":"1m"},{"target":11000,"duration":"1m"},{"target":12000,"duration":"1m"}]';
+const EXTREME_QPS_DEFINITION = 'max achieved_qps among stable stages where injection_ratio>=min_injection_ratio, biz_success_rate>=min_biz_success_rate and p95<=max_p95_ms';
 
 const TURNING_INJECT_RATIO = Number(__ENV.TURNING_INJECT_RATIO || 0.95);
 const TURNING_BIZ_SUCCESS_RATE = Number(__ENV.TURNING_BIZ_SUCCESS_RATE || 0.995);
@@ -661,7 +664,7 @@ function parseStages() {
     const parsed = JSON.parse(MAX_STAGES_JSON);
     if (Array.isArray(parsed) && parsed.length > 0) return parsed;
   } catch (_) {}
-  return [{ target: 1000, duration: '1m' }, { target: 3000, duration: '1m' }, { target: 5000, duration: '1m' }, { target: 7000, duration: '1m' }, { target: 9000, duration: '1m' }, { target: 10000, duration: '1m' }];
+  return [{ target: 7000, duration: '1m' }, { target: 8000, duration: '1m' }, { target: 9000, duration: '1m' }, { target: 10000, duration: '1m' }, { target: 11000, duration: '1m' }, { target: 12000, duration: '1m' }];
 }
 
 function parseDurationToSec(duration) {
@@ -701,7 +704,7 @@ function buildScenarios() {
     return {
       max_probe: {
         executor: 'ramping-arrival-rate',
-        startRate: Number(__ENV.START_RATE || 1000),
+        startRate: Number(__ENV.START_RATE || 7000),
         timeUnit: '1s',
         preAllocatedVUs: PRE_VUS,
         maxVUs: MAX_VUS,
@@ -956,10 +959,12 @@ export function handleSummary(data) {
     });
 
   let turningPoint = null;
-  let limitQps = 0;
+  let extremeQps = 0;
+  let extremeStageIndex = null;
   stageMetrics.forEach((s) => {
-    if (s.stable && s.achieved_qps > limitQps) {
-      limitQps = s.achieved_qps;
+    if (s.stable && s.achieved_qps > extremeQps) {
+      extremeQps = s.achieved_qps;
+      extremeStageIndex = s.stage_index;
     }
     if (!turningPoint && !s.stable && s.stage_target > 0) {
       turningPoint = {
@@ -972,8 +977,9 @@ export function handleSummary(data) {
       };
     }
   });
-  if (limitQps <= 0) {
-    limitQps = bizSuccessQps;
+  const limitDerivedFrom = extremeQps > 0 ? 'stable_stages' : 'global_biz_success_qps_fallback';
+  if (extremeQps <= 0) {
+    extremeQps = bizSuccessQps;
   }
 
   const localOptimistic = BASE_URL.indexOf('127.0.0.1') >= 0 || BASE_URL.indexOf('localhost') >= 0 || BASE_URL.indexOf('::1') >= 0;
@@ -985,7 +991,7 @@ export function handleSummary(data) {
   }
 
   const extendedSummary = {
-    analysis_version: 'v2',
+    analysis_version: 'v3',
     mode: {
       test_mode: TEST_MODE,
       target_mode: TARGET_MODE,
@@ -996,7 +1002,8 @@ export function handleSummary(data) {
       http_reqs_rate: totalReqRate,
       biz_success_qps: bizSuccessQps,
       biz_accepted_qps: bizAcceptedQps,
-      estimated_limit_qps: limitQps,
+      estimated_limit_qps: extremeQps,
+      extreme_qps: extremeQps,
     },
     totals: {
       total_requests: totalReqCount,
@@ -1013,6 +1020,9 @@ export function handleSummary(data) {
       min_injection_ratio: TURNING_INJECT_RATIO,
       min_biz_success_rate: TURNING_BIZ_SUCCESS_RATE,
       max_p95_ms: TURNING_P95_MS,
+      extreme_qps_definition: EXTREME_QPS_DEFINITION,
+      extreme_qps_derived_from: limitDerivedFrom,
+      extreme_qps_stage_index: extremeStageIndex,
     },
     local_run_assessment: {
       is_local_optimistic: localOptimistic,
