@@ -80,6 +80,26 @@ public class UserTaskInstanceServiceImplTest {
     }
 
     @Test
+    public void directMethods_shouldUseDbOnly() {
+        UserTaskInstance row = new UserTaskInstance();
+        row.setUserId(500L);
+        row.setTaskId(600L);
+        row.setStatus(1);
+        when(mapper.selectByUserId(500L)).thenReturn(List.of(row));
+        when(mapper.updateWithVersion(any(UserTaskInstance.class))).thenReturn(1);
+
+        List<UserTaskInstance> out = service.selectByUserIdDirect(500L);
+        assertEquals(1, out.size());
+
+        int updated = service.updateDirect(row);
+        assertEquals(1, updated);
+
+        verify(mapper, times(1)).selectByUserId(500L);
+        verify(mapper, times(1)).updateWithVersion(row);
+        verify(valueOps, never()).set(anyString(), anyString());
+    }
+
+    @Test
     public void getAcceptedInstance_readsFromCache_whenCached_andAccepted() {
         UserTaskInstance cached = new UserTaskInstance();
         cached.setUserId(1L);

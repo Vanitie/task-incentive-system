@@ -87,6 +87,11 @@ public interface TaskConfigService {
     Set<String> getTaskIdsByEventType(String eventType);
 
     /**
+     * 仅走数据库获取事件关联任务ID（压测对照：无缓存）
+     */
+    Set<String> getTaskIdsByEventTypeDirect(String eventType);
+
+    /**
      * 使本地缓存失效（由事件触发）
      */
     void invalidateTaskConfig(Long taskId);
@@ -100,6 +105,11 @@ public interface TaskConfigService {
      * 批量获取 taskConfig，返回 id->TaskConfig 映射（用于批量处理优化）
      */
     Map<Long, TaskConfig> getTaskConfigsByIds(Set<Long> ids);
+
+    /**
+     * 仅走数据库批量获取 taskConfig（压测对照：无缓存）
+     */
+    Map<Long, TaskConfig> getTaskConfigsByIdsDirect(Set<Long> ids);
 
     /**
      * 多条件分页查询任务配置

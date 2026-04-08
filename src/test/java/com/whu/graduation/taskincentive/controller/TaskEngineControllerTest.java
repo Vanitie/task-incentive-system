@@ -78,6 +78,28 @@ public class TaskEngineControllerTest {
     }
 
     @Test
+    public void processEventDirect_shouldOk() throws Exception {
+        String body = "{\"messageId\":\"m2d\",\"userId\":1,\"eventType\":\"USER_LEARN\",\"value\":1}";
+        mockMvc.perform(post("/api/engine/process-event-direct").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("processed_direct"));
+
+        verify(taskEngine, times(1)).processEventDirect(any(UserEvent.class));
+        verify(taskEngine, never()).processEvent(any(UserEvent.class));
+    }
+
+    @Test
+    public void processEventDirect_shouldReturnBusinessError_whenEngineThrows() throws Exception {
+        doThrow(new RuntimeException("boom-direct")).when(taskEngine).processEventDirect(any(UserEvent.class));
+
+        String body = "{\"messageId\":\"m2d-err\",\"userId\":1,\"eventType\":\"USER_LEARN\",\"value\":1}";
+        mockMvc.perform(post("/api/engine/process-event-direct").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(500))
+                .andExpect(jsonPath("$.msg").value("boom-direct"));
+    }
+
+    @Test
     public void processEventAsync_shouldReturnDuplicate_whenMessageIdRepeated() throws Exception {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.setIfAbsent(anyString(), anyString(), any(Long.class), any(TimeUnit.class))).thenReturn(false);

@@ -1,6 +1,13 @@
 package com.whu.graduation.taskincentive.service.risk;
 
 import com.whu.graduation.taskincentive.constant.RiskConstants;
+import com.whu.graduation.taskincentive.dao.mapper.RiskBlacklistMapper;
+import com.whu.graduation.taskincentive.dao.mapper.RiskDecisionLogMapper;
+import com.whu.graduation.taskincentive.dao.mapper.RiskQuotaMapper;
+import com.whu.graduation.taskincentive.dao.mapper.RiskRuleMapper;
+import com.whu.graduation.taskincentive.dao.mapper.RiskWhitelistMapper;
+import com.whu.graduation.taskincentive.dao.mapper.RewardFreezeRecordMapper;
+import com.whu.graduation.taskincentive.dao.mapper.UserRewardRecordMapper;
 import com.whu.graduation.taskincentive.dao.entity.RiskQuota;
 import com.whu.graduation.taskincentive.dto.risk.RiskDecisionRequest;
 import com.whu.graduation.taskincentive.dto.risk.RiskDecisionResponse;
@@ -20,6 +27,7 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 import java.util.List;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -35,6 +43,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
 
 public class RiskDecisionServiceImplTest {
 
@@ -44,6 +53,13 @@ public class RiskDecisionServiceImplTest {
     private RedisTemplate<String, String> redisTemplate;
     private ValueOperations<String, String> valueOperations;
     private RiskDecisionPersistProducer persistProducer;
+    private RiskRuleMapper riskRuleMapper;
+    private RiskQuotaMapper riskQuotaMapper;
+    private RiskWhitelistMapper riskWhitelistMapper;
+    private RiskBlacklistMapper riskBlacklistMapper;
+    private RiskDecisionLogMapper riskDecisionLogMapper;
+    private RewardFreezeRecordMapper rewardFreezeRecordMapper;
+    private UserRewardRecordMapper userRewardRecordMapper;
     private RiskDecisionServiceImpl service;
 
     @BeforeEach
@@ -54,6 +70,13 @@ public class RiskDecisionServiceImplTest {
         redisTemplate = mockRedisTemplate();
         valueOperations = mockValueOperations();
         persistProducer = mock(RiskDecisionPersistProducer.class);
+        riskRuleMapper = mock(RiskRuleMapper.class);
+        riskQuotaMapper = mock(RiskQuotaMapper.class);
+        riskWhitelistMapper = mock(RiskWhitelistMapper.class);
+        riskBlacklistMapper = mock(RiskBlacklistMapper.class);
+        riskDecisionLogMapper = mock(RiskDecisionLogMapper.class);
+        rewardFreezeRecordMapper = mock(RewardFreezeRecordMapper.class);
+        userRewardRecordMapper = mock(UserRewardRecordMapper.class);
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.setIfAbsent(anyString(), anyString(), anyLong(), eq(TimeUnit.DAYS))).thenReturn(true);
@@ -61,6 +84,31 @@ public class RiskDecisionServiceImplTest {
         when(redisTemplate.expire(anyString(), anyLong(), eq(TimeUnit.SECONDS))).thenReturn(true);
 
         service = new RiskDecisionServiceImpl(decisionEngine, metricStore, cacheStore, redisTemplate, persistProducer);
+        setField(service, "riskRuleMapper", riskRuleMapper);
+        setField(service, "riskQuotaMapper", riskQuotaMapper);
+        setField(service, "riskWhitelistMapper", riskWhitelistMapper);
+        setField(service, "riskBlacklistMapper", riskBlacklistMapper);
+        setField(service, "riskDecisionLogMapper", riskDecisionLogMapper);
+        setField(service, "rewardFreezeRecordMapper", rewardFreezeRecordMapper);
+        setField(service, "userRewardRecordMapper", userRewardRecordMapper);
+
+        when(riskDecisionLogMapper.selectCount(any())).thenReturn(0L);
+        when(userRewardRecordMapper.selectList(any())).thenReturn(Collections.emptyList());
+        when(riskRuleMapper.selectList(any())).thenReturn(Collections.emptyList());
+        when(riskQuotaMapper.selectList(any())).thenReturn(Collections.emptyList());
+        when(riskWhitelistMapper.selectOne(any())).thenReturn(null);
+        when(riskBlacklistMapper.selectOne(any())).thenReturn(null);
+        when(riskDecisionLogMapper.selectOne(any())).thenReturn(null);
+    }
+
+    private void setField(Object target, String fieldName, Object value) {
+        try {
+            java.lang.reflect.Field field = target.getClass().getDeclaredField(fieldName);
+            field.setAccessible(true);
+            field.set(target, value);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -82,6 +130,32 @@ public class RiskDecisionServiceImplTest {
         assertEquals("REJECT", resp.getDecision());
         assertEquals(RiskConstants.REASON_REPLAY, resp.getReasonCode());
         verify(metricStore, never()).record(any());
+    }
+
+    @Test
+    public void evaluateDirect_shouldPersistToDb_andSkipKafkaProducer() {
+        when(decisionEngine.evaluateRules(any(), any())).thenReturn(
+                RiskDecisionResponse.builder().decision("PASS").reasonCode("PASS").riskScore(7).build()
+        );
+
+        RiskDecisionResponse resp = service.evaluateDirect(baseRequest());
+
+        assertEquals("PASS", resp.getDecision());
+        verify(riskDecisionLogMapper, times(1)).insert(any());
+        verify(rewardFreezeRecordMapper, never()).insert(any());
+        verify(persistProducer, never()).send(anyString(), any());
+    }
+
+    @Test
+    public void evaluateDirect_shouldInsertFreezeRecord_whenEngineReturnsNull() {
+        when(decisionEngine.evaluateRules(any(), any())).thenReturn(null);
+
+        RiskDecisionResponse resp = service.evaluateDirect(baseRequest());
+
+        assertEquals("FREEZE", resp.getDecision());
+        verify(riskDecisionLogMapper, times(1)).insert(any());
+        verify(rewardFreezeRecordMapper, times(1)).insert(any());
+        verify(persistProducer, never()).send(anyString(), any());
     }
 
     @Test

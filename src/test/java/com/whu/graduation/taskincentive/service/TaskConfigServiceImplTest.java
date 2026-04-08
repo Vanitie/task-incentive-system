@@ -109,6 +109,33 @@ public class TaskConfigServiceImplTest {
     }
 
     @Test
+    public void directMethods_shouldReadFromDbOnly() {
+        TaskConfig tc = new TaskConfig();
+        tc.setId(701L);
+        tc.setTaskName("direct");
+        when(mapper.selectList(any())).thenReturn(List.of(tc));
+        when(mapper.selectBatchIds(Set.of(701L))).thenReturn(List.of(tc));
+
+        Set<String> ids = service.getTaskIdsByEventTypeDirect("USER_LEARN");
+        Map<Long, TaskConfig> cfgMap = service.getTaskConfigsByIdsDirect(Set.of(701L));
+
+        assertEquals(Set.of("701"), ids);
+        assertEquals(1, cfgMap.size());
+        assertTrue(cfgMap.containsKey(701L));
+        verify(mapper, times(1)).selectList(any());
+        verify(mapper, times(1)).selectBatchIds(Set.of(701L));
+        verify(valueOps, never()).multiGet(anyList());
+    }
+
+    @Test
+    public void getTaskIdsByEventTypeDirect_shouldReturnEmpty_whenEventTypeBlank() {
+        Set<String> ids = service.getTaskIdsByEventTypeDirect("");
+        assertNotNull(ids);
+        assertTrue(ids.isEmpty());
+        verify(mapper, never()).selectList(any());
+    }
+
+    @Test
     public void save_limited_createsStock_and_writesRedis() {
         TaskConfig tc = new TaskConfig();
         tc.setStockType("LIMITED");

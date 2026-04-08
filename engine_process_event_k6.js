@@ -9,14 +9,14 @@ import { Counter, Rate, Trend } from 'k6/metrics';
 // 3) TEST_MODE=max       -> ramping arrival rate to find limit QPS
 
 const TEST_MODE = __ENV.TEST_MODE || 'baseline';
-const TARGET_MODE = __ENV.TARGET_MODE || 'async'; // async|sync|noop
+const TARGET_MODE = __ENV.TARGET_MODE || 'async'; // async|sync|direct|noop
 const RATE = Number(__ENV.RATE || 200);
 const PRE_VUS = Number(__ENV.PRE_VUS || 800);
 const MAX_VUS = Number(__ENV.MAX_VUS || 12000);
 const DURATION = __ENV.DURATION || '3m';
 const START_RATE = Number(__ENV.START_RATE || 7000);
 const WINDOW_SEC = Math.max(1, Number(__ENV.WINDOW_SEC || 10));
-const MAX_STAGES_JSON = __ENV.MAX_STAGES_JSON || '[{"start":7000,"target":8000,"duration":"1m"},{"start":8000,"target":9000,"duration":"1m"},{"start":9000,"target":10000,"duration":"1m"},{"start":10000,"target":11000,"duration":"1m"},{"start":11000,"target":12000,"duration":"1m"}]';
+const MAX_STAGES_JSON = __ENV.MAX_STAGES_JSON || '[{"start":7500,"target":7800,"duration":"1m"}]';
 const EXTREME_QPS_DEFINITION = 'max achieved_qps among stable windows where injection_ratio>=min_injection_ratio, biz_success_rate>=min_biz_success_rate and p95<=max_p95_ms';
 
 const TURNING_INJECT_RATIO = Number(__ENV.TURNING_INJECT_RATIO || 0.95);
@@ -181,6 +181,7 @@ const EVENT_TYPES = ['USER_LEARN', 'USER_SIGN'];
 const DUP_POOL = Array.from({ length: 200 }, (_, i) => `dup-${i + 1}`);
 const ASYNC_ENDPOINT = '/api/engine/process-event-async';
 const SYNC_ENDPOINT = '/api/engine/process-event-sync';
+const DIRECT_ENDPOINT = '/api/engine/process-event-direct';
 const NOOP_ENDPOINT = '/api/benchmark/noop';
 const RUN_ID = __ENV.RUN_ID || `${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
 
@@ -195,7 +196,24 @@ function endpointTypeForScenario() {
   if (TARGET_MODE === 'noop') {
     return 'noop';
   }
-  return TARGET_MODE === 'sync' ? 'sync' : 'async';
+  if (TARGET_MODE === 'sync') {
+    return 'sync';
+  }
+  if (TARGET_MODE === 'direct') {
+    return 'direct';
+  }
+  return 'async';
+}
+
+function isDirectBizSuccess(res, statusCode) {
+  if (statusCode !== 200) {
+    return false;
+  }
+  if (!res || !res.body) {
+    return false;
+  }
+  // direct endpoint returns { data: { status: "processed_direct" } } on success
+  return String(res.body).indexOf('processed_direct') >= 0;
 }
 
 function stageMeta() {
@@ -278,6 +296,8 @@ export default function () {
   const endpointType = endpointTypeForScenario();
   const endpoint = endpointType === 'sync'
     ? SYNC_ENDPOINT
+    : endpointType === 'direct'
+      ? DIRECT_ENDPOINT
     : endpointType === 'noop'
       ? NOOP_ENDPOINT
       : ASYNC_ENDPOINT;
@@ -329,7 +349,9 @@ export default function () {
     : statusCode === 200;
   const bizSuccess = endpointType === 'async'
     ? ASYNC_BIZ_SUCCESS_CODES.includes(statusCode)
-    : statusCode === 200;
+    : endpointType === 'direct'
+      ? isDirectBizSuccess(res, statusCode)
+      : statusCode === 200;
   const degraded = accepted && !bizSuccess;
 
   check(res, {

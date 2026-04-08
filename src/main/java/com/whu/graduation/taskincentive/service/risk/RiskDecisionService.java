@@ -12,4 +12,9 @@ public interface RiskDecisionService {
      * 实时风控决策
      */
     RiskDecisionResponse evaluate(RiskDecisionRequest request);
+
+    /**
+     * 对照链路风控：全量按数据库读取并同步落库，不依赖缓存和 Kafka。
+     */
+    RiskDecisionResponse evaluateDirect(RiskDecisionRequest request);
 }

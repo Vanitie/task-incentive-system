@@ -103,6 +103,35 @@ public class TaskEngineTest {
     }
 
     @Test
+    public void processEventDirect_shouldUseDbOnlyAndSyncPersist() {
+        UserEvent event = buildEvent();
+        TaskConfig cfg = buildTaskConfig(10L);
+        UserTaskInstance instance = buildInstance(1);
+
+        when(taskConfigService.getTaskIdsByEventTypeDirect("USER_LEARN")).thenReturn(Set.of("10"));
+        when(instanceService.selectByUserIdDirect(1001L)).thenReturn(List.of(instance));
+        when(taskConfigService.getTaskConfigsByIdsDirect(Set.of(10L))).thenReturn(Map.of(10L, cfg));
+        when(taskStrategy.execute(any(UserEvent.class), any(TaskConfig.class), any(UserTaskInstance.class))).thenReturn(List.of(1));
+        when(riskDecisionService.evaluateDirect(any())).thenReturn(RiskDecisionResponse.builder().decision("PASS").build());
+        when(stockStrategy.acquireStock(10L, 1)).thenReturn(true);
+        when(rewardService.grantRewardDirect(anyLong(), any(Reward.class))).thenReturn(true);
+        when(instanceService.updateDirect(instance)).thenReturn(1);
+
+        taskEngine.processEventDirect(event);
+
+        verify(taskConfigService, times(1)).getTaskIdsByEventTypeDirect("USER_LEARN");
+        verify(instanceService, times(1)).selectByUserIdDirect(1001L);
+        verify(taskConfigService, times(1)).getTaskConfigsByIdsDirect(Set.of(10L));
+        verify(instanceService, times(1)).updateDirect(instance);
+        verify(instanceService, never()).updateAndPublish(any(UserTaskInstance.class));
+        verify(riskDecisionService, times(1)).evaluateDirect(any());
+        verify(riskDecisionService, never()).evaluate(any());
+        verify(rewardService, times(1)).grantRewardDirect(anyLong(), any(Reward.class));
+        verify(rewardService, never()).grantReward(anyLong(), any(Reward.class));
+        verify(setOperations, never()).intersect(any(String.class), any(String.class));
+    }
+
+    @Test
     public void processEvent_shouldSkipReward_whenRiskReject() {
         UserEvent event = buildEvent();
         TaskConfig cfg = buildTaskConfig(10L);

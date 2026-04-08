@@ -134,6 +134,34 @@ public class TaskEngineController {
         }
     }
 
+    /**
+     * 压测对照接口：不做 Redis 去重，不走缓存/消息解耦链路。
+     */
+    @Operation(summary = "同步处理用户事件（对照链路：无缓存、无Kafka）")
+    @PostMapping("/api/engine/process-event-direct")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<?> processEventDirect(@Valid @RequestBody ProcessEventRequest req) {
+        UserEvent event = new UserEvent();
+        event.setUserId(req.getUserId());
+        event.setEventType(req.getEventType());
+        event.setValue(req.getValue());
+        event.setTime(req.getTime() == null ? LocalDateTime.now() : req.getTime());
+        event.setRequestId(resolveRequestId(req));
+        event.setEventId(req.getEventId());
+        event.setDeviceId(req.getDeviceId());
+        event.setIp(req.getIp());
+        event.setChannel(req.getChannel());
+        event.setExt(req.getExt());
+
+        try {
+            taskEngine.processEventDirect(event);
+            return ApiResponse.success(Collections.singletonMap("status", "processed_direct"));
+        } catch (Exception e) {
+            log.error("direct process failed", e);
+            return ApiResponse.error(500, e.getMessage());
+        }
+    }
+
     private String resolveRequestId(ProcessEventRequest req) {
         String requestId = req == null ? null : req.getRequestId();
         if (requestId != null) {

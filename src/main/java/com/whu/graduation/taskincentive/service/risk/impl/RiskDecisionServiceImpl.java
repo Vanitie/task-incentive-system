@@ -1,12 +1,23 @@
 package com.whu.graduation.taskincentive.service.risk.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.whu.graduation.taskincentive.common.enums.RiskDecisionAction;
 import com.whu.graduation.taskincentive.constant.RiskConstants;
+import com.whu.graduation.taskincentive.dao.entity.RiskBlacklist;
 import com.whu.graduation.taskincentive.dao.entity.RiskDecisionLog;
 import com.whu.graduation.taskincentive.dao.entity.RewardFreezeRecord;
 import com.whu.graduation.taskincentive.dao.entity.RiskQuota;
+import com.whu.graduation.taskincentive.dao.entity.RiskRule;
+import com.whu.graduation.taskincentive.dao.entity.RiskWhitelist;
+import com.whu.graduation.taskincentive.dao.mapper.RewardFreezeRecordMapper;
+import com.whu.graduation.taskincentive.dao.mapper.RiskBlacklistMapper;
+import com.whu.graduation.taskincentive.dao.mapper.RiskDecisionLogMapper;
+import com.whu.graduation.taskincentive.dao.mapper.RiskQuotaMapper;
+import com.whu.graduation.taskincentive.dao.mapper.RiskRuleMapper;
+import com.whu.graduation.taskincentive.dao.mapper.RiskWhitelistMapper;
+import com.whu.graduation.taskincentive.dao.mapper.UserRewardRecordMapper;
 import com.whu.graduation.taskincentive.dto.risk.RiskDecisionRequest;
 import com.whu.graduation.taskincentive.dto.risk.RiskDecisionResponse;
 import com.whu.graduation.taskincentive.dto.risk.RiskHitRule;
@@ -17,6 +28,7 @@ import com.whu.graduation.taskincentive.service.risk.RiskMetricStore;
 import com.whu.graduation.taskincentive.mq.RiskDecisionPersistMessage;
 import com.whu.graduation.taskincentive.mq.RiskDecisionPersistProducer;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -42,6 +54,21 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
     private final RedisTemplate<String, String> redisTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final RiskDecisionPersistProducer persistProducer;
+
+    @Autowired
+    private RiskRuleMapper riskRuleMapper;
+    @Autowired
+    private RiskQuotaMapper riskQuotaMapper;
+    @Autowired
+    private RiskWhitelistMapper riskWhitelistMapper;
+    @Autowired
+    private RiskBlacklistMapper riskBlacklistMapper;
+    @Autowired
+    private RiskDecisionLogMapper riskDecisionLogMapper;
+    @Autowired
+    private RewardFreezeRecordMapper rewardFreezeRecordMapper;
+    @Autowired
+    private UserRewardRecordMapper userRewardRecordMapper;
 
     public RiskDecisionServiceImpl(RiskDecisionEngine decisionEngine,
                                    RiskMetricStore metricStore,
@@ -111,6 +138,93 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
         }
     }
 
+    @Override
+    public RiskDecisionResponse evaluateDirect(RiskDecisionRequest request) {
+        long start = System.currentTimeMillis();
+        String traceId = request.getRequestId() == null ? String.valueOf(IdWorker.getId()) : request.getRequestId();
+
+        try {
+            if (!checkDedupDirect(request)) {
+                return buildResponseOnly(traceId, RiskDecisionAction.REJECT, RiskConstants.REASON_REPLAY,
+                        Collections.emptyList(), 0, null);
+            }
+
+            if (hitWhitelistDirect(request)) {
+                return buildAndLogDirect(request, traceId, RiskDecisionAction.PASS, RiskConstants.REASON_WHITELIST,
+                        Collections.emptyList(), start, 0, null);
+            }
+            if (hitBlacklistDirect(request)) {
+                return buildAndLogDirect(request, traceId, RiskDecisionAction.REJECT, RiskConstants.REASON_BLACKLIST,
+                        Collections.emptyList(), start, 80, null);
+            }
+
+            List<RiskQuota> quotas = loadQuotasDirect();
+            if (!checkQuotaDirect(request, quotas)) {
+                return buildAndLogDirect(request, traceId, RiskDecisionAction.REJECT, RiskConstants.REASON_QUOTA_EXCEEDED,
+                        Collections.emptyList(), start, 70, null);
+            }
+
+            List<RiskRule> rules = loadActiveRulesDirect();
+            Map<String, Object> context = buildContextDirect(request);
+            RiskDecisionResponse response = decisionEngine.evaluateRules(rules, context);
+            if (response == null) {
+                return buildAndLogDirect(request, traceId, RiskDecisionAction.FREEZE, RiskConstants.REASON_DEFAULT,
+                        Collections.emptyList(), start, 60, null);
+            }
+            response.setTraceId(traceId);
+
+            RiskDecisionAction action = parseAction(response.getDecision());
+            if (action == null) {
+                return buildAndLogDirect(request, traceId, RiskDecisionAction.FREEZE, RiskConstants.REASON_DEFAULT,
+                        response.getHitRules(), start, response.getRiskScore(), response.getDegradeRatio());
+            }
+            return buildAndLogDirect(request, traceId, action, response.getReasonCode(),
+                    response.getHitRules(), start, response.getRiskScore(), response.getDegradeRatio());
+        } catch (Exception e) {
+            return buildAndLogDirect(request, traceId, RiskDecisionAction.FREEZE, RiskConstants.REASON_DEFAULT,
+                    Collections.emptyList(), start, 90, null);
+        }
+    }
+
+    private RiskDecisionResponse buildAndLogDirect(RiskDecisionRequest request, String traceId,
+                                                   RiskDecisionAction action, String reason,
+                                                   List<RiskHitRule> hitRules, long start,
+                                                   Integer riskScore, Double degradeRatio) {
+        long latency = System.currentTimeMillis() - start;
+        RiskDecisionResponse response = buildResponseOnly(traceId, action, reason, hitRules, riskScore, degradeRatio);
+
+        RiskDecisionLog decisionLog = RiskDecisionLog.builder()
+                .id(IdWorker.getId())
+                .requestId(request.getRequestId())
+                .eventId(request.getEventId())
+                .userId(request.getUserId())
+                .taskId(request.getTaskId())
+                .decision(action.name())
+                .reasonCode(reason)
+                .hitRules(toJson(hitRules))
+                .riskScore(riskScore == null ? 0 : riskScore)
+                .latencyMs(latency)
+                .createdAt(new Date())
+                .build();
+        riskDecisionLogMapper.insert(decisionLog);
+
+        if (action == RiskDecisionAction.FREEZE) {
+            RewardFreezeRecord freeze = RewardFreezeRecord.builder()
+                    .id(IdWorker.getId())
+                    .rewardId(null)
+                    .userId(request.getUserId())
+                    .taskId(request.getTaskId())
+                    .freezeReason(reason)
+                    .status(0)
+                    .unfreezeAt(null)
+                    .createdAt(new Date())
+                    .updatedAt(new Date())
+                    .build();
+            rewardFreezeRecordMapper.insert(freeze);
+        }
+        return response;
+    }
+
     private RiskDecisionResponse buildAndLog(RiskDecisionRequest request, String traceId,
                                              RiskDecisionAction action, String reason,
                                              List<RiskHitRule> hitRules, long start,
@@ -158,6 +272,191 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
                     request.getRequestId(), request.getUserId(), request.getTaskId(), e);
         }
         return response;
+    }
+
+    private boolean checkDedupDirect(RiskDecisionRequest request) {
+        if (request.getRequestId() == null || request.getRequestId().isEmpty()) {
+            return true;
+        }
+        QueryWrapper<RiskDecisionLog> wrapper = new QueryWrapper<RiskDecisionLog>()
+                .eq("request_id", request.getRequestId())
+                .last("LIMIT 1");
+        return riskDecisionLogMapper.selectOne(wrapper) == null;
+    }
+
+    private boolean hitWhitelistDirect(RiskDecisionRequest request) {
+        return hitListDirect(true, request);
+    }
+
+    private boolean hitBlacklistDirect(RiskDecisionRequest request) {
+        return hitListDirect(false, request);
+    }
+
+    private boolean hitListDirect(boolean whitelist, RiskDecisionRequest request) {
+        Date now = new Date();
+        if (request.getUserId() != null) {
+            if (existsInList(whitelist, "USER", String.valueOf(request.getUserId()), now)) {
+                return true;
+            }
+        }
+        if (request.getDeviceId() != null && !request.getDeviceId().isEmpty()) {
+            if (existsInList(whitelist, "DEVICE", request.getDeviceId(), now)) {
+                return true;
+            }
+        }
+        if (request.getIp() != null && !request.getIp().isEmpty()) {
+            if (existsInList(whitelist, "IP", request.getIp(), now)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean existsInList(boolean whitelist, String type, String value, Date now) {
+        if (whitelist) {
+            QueryWrapper<RiskWhitelist> wrapper = new QueryWrapper<RiskWhitelist>()
+                    .eq("status", 1)
+                    .eq("target_type", type)
+                    .eq("target_value", value)
+                    .and(q -> q.isNull("expire_at").or().gt("expire_at", now))
+                    .last("LIMIT 1");
+            return riskWhitelistMapper.selectOne(wrapper) != null;
+        }
+        QueryWrapper<RiskBlacklist> wrapper = new QueryWrapper<RiskBlacklist>()
+                .eq("status", 1)
+                .eq("target_type", type)
+                .eq("target_value", value)
+                .and(q -> q.isNull("expire_at").or().gt("expire_at", now))
+                .last("LIMIT 1");
+        return riskBlacklistMapper.selectOne(wrapper) != null;
+    }
+
+    private List<RiskQuota> loadQuotasDirect() {
+        List<RiskQuota> list = riskQuotaMapper.selectList(new QueryWrapper<RiskQuota>());
+        return list == null ? Collections.emptyList() : list;
+    }
+
+    private List<RiskRule> loadActiveRulesDirect() {
+        List<RiskRule> list = riskRuleMapper.selectList(new QueryWrapper<RiskRule>().eq("status", 1).orderByDesc("priority"));
+        return list == null ? Collections.emptyList() : list;
+    }
+
+    private boolean checkQuotaDirect(RiskDecisionRequest request, List<RiskQuota> quotas) {
+        if (quotas == null || quotas.isEmpty()) return true;
+        LocalDateTime time = request.getEventTime() == null ? LocalDateTime.now() : request.getEventTime();
+        String resourceType = normalizeResourceType(request.getResourceType());
+        String resourceId = normalizeResourceId(request.getResourceId());
+        for (RiskQuota quota : quotas) {
+            if (!isQuotaApplicable(quota, request, resourceType, resourceId)) {
+                continue;
+            }
+            long used = countQuotaUsageDirect(quota, request, time);
+            Integer limit = quota.getLimitValue();
+            if (limit != null && used >= limit) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private long countQuotaUsageDirect(RiskQuota quota, RiskDecisionRequest request, LocalDateTime time) {
+        LocalDateTime start;
+        String periodType = quota.getPeriodType() == null || quota.getPeriodType().isEmpty()
+                ? "DAY" : quota.getPeriodType().toUpperCase();
+        if ("HOUR".equalsIgnoreCase(periodType)) {
+            start = time.withMinute(0).withSecond(0).withNano(0);
+        } else if ("MINUTE".equalsIgnoreCase(periodType)) {
+            start = time.withSecond(0).withNano(0);
+        } else {
+            start = time.withHour(0).withMinute(0).withSecond(0).withNano(0);
+        }
+        Date startDate = Date.from(start.atZone(ZoneId.systemDefault()).toInstant());
+        Date endDate = Date.from(time.atZone(ZoneId.systemDefault()).toInstant());
+        QueryWrapper<RiskDecisionLog> wrapper = new QueryWrapper<RiskDecisionLog>()
+                .ge("created_at", startDate)
+                .lt("created_at", endDate);
+
+        String scopeType = quota.getScopeType() == null ? "" : quota.getScopeType().toUpperCase();
+        String scopeId = quota.getScopeId() == null ? "ALL" : quota.getScopeId();
+        if ("USER".equals(scopeType) && request.getUserId() != null && !"ALL".equalsIgnoreCase(scopeId)) {
+            wrapper.eq("user_id", request.getUserId());
+        }
+        if ("TASK".equals(scopeType) && request.getTaskId() != null && !"ALL".equalsIgnoreCase(scopeId)) {
+            wrapper.eq("task_id", request.getTaskId());
+        }
+        Long count = riskDecisionLogMapper.selectCount(wrapper);
+        return count == null ? 0L : count;
+    }
+
+    private Map<String, Object> buildContextDirect(RiskDecisionRequest request) {
+        Map<String, Object> ctx = new HashMap<>();
+        LocalDateTime time = request.getEventTime() == null ? LocalDateTime.now() : request.getEventTime();
+        Date nowDate = Date.from(time.atZone(ZoneId.systemDefault()).toInstant());
+        Date minuteStart = Date.from(time.withSecond(0).withNano(0).atZone(ZoneId.systemDefault()).toInstant());
+        Date hourStart = Date.from(time.withMinute(0).withSecond(0).withNano(0).atZone(ZoneId.systemDefault()).toInstant());
+        Date dayStart = Date.from(time.withHour(0).withMinute(0).withSecond(0).withNano(0).atZone(ZoneId.systemDefault()).toInstant());
+
+        long count1m = countDecisionLogsByWindow(request.getUserId(), request.getTaskId(), minuteStart, nowDate);
+        long count1h = countDecisionLogsByWindow(request.getUserId(), request.getTaskId(), hourStart, nowDate);
+        long amount1d = sumRewardAmountByWindow(request.getUserId(), request.getTaskId(), dayStart, nowDate);
+
+        ctx.put("eventTime", time);
+        ctx.put("userId", request.getUserId());
+        ctx.put("taskId", request.getTaskId());
+        ctx.put("eventType", request.getEventType());
+        ctx.put("amount", request.getAmount() == null ? 1 : request.getAmount());
+        ctx.put("resourceType", normalizeResourceType(request.getResourceType()));
+        ctx.put("resourceId", normalizeResourceId(request.getResourceId()));
+        ctx.put("count_1m", count1m);
+        ctx.put("count_1h", count1h);
+        ctx.put("amount_1d", amount1d);
+        // 当前库表未存储 device/ip 维度的行为明细，直连链路按 0 处理。
+        ctx.put("distinct_device_1d", 0L);
+        ctx.put("ip_count_1m", 0L);
+        ctx.put("device_count_1m", 0L);
+        if (request.getExt() != null) {
+            ctx.putAll(request.getExt());
+        }
+        return ctx;
+    }
+
+    private long countDecisionLogsByWindow(Long userId, Long taskId, Date start, Date end) {
+        QueryWrapper<RiskDecisionLog> wrapper = new QueryWrapper<RiskDecisionLog>()
+                .ge("created_at", start)
+                .lt("created_at", end);
+        if (userId != null) {
+            wrapper.eq("user_id", userId);
+        }
+        if (taskId != null) {
+            wrapper.eq("task_id", taskId);
+        }
+        Long cnt = riskDecisionLogMapper.selectCount(wrapper);
+        return cnt == null ? 0L : cnt;
+    }
+
+    private long sumRewardAmountByWindow(Long userId, Long taskId, Date start, Date end) {
+        QueryWrapper<com.whu.graduation.taskincentive.dao.entity.UserRewardRecord> wrapper =
+                new QueryWrapper<com.whu.graduation.taskincentive.dao.entity.UserRewardRecord>()
+                        .select("reward_value")
+                        .ge("create_time", start)
+                        .lt("create_time", end);
+        if (userId != null) {
+            wrapper.eq("user_id", userId);
+        }
+        if (taskId != null) {
+            wrapper.eq("task_id", taskId);
+        }
+        List<com.whu.graduation.taskincentive.dao.entity.UserRewardRecord> list = userRewardRecordMapper.selectList(wrapper);
+        if (list == null || list.isEmpty()) {
+            return 0L;
+        }
+        long sum = 0L;
+        for (com.whu.graduation.taskincentive.dao.entity.UserRewardRecord row : list) {
+            if (row != null && row.getRewardValue() != null) {
+                sum += row.getRewardValue();
+            }
+        }
+        return sum;
     }
 
     private RiskDecisionResponse buildResponseOnly(String traceId,

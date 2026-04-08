@@ -203,6 +203,11 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
     }
 
     @Override
+    public List<UserTaskInstance> selectByUserIdDirect(Long userId) {
+        return userTaskInstanceMapper.selectByUserId(userId);
+    }
+
+    @Override
     public List<UserTaskInstance> selectByUserIdAndStatus(Long userId, Integer status) {
         return userTaskInstanceMapper.selectByUserIdAndStatus(userId, status);
     }
@@ -325,6 +330,11 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
                 log.warn("kafka send failed for instance userId={}, taskId={}, err={}", instance.getUserId(), instance.getTaskId(), e.getMessage());
             }
         }
+    }
+
+    @Override
+    public int updateDirect(UserTaskInstance instance) {
+        return userTaskInstanceMapper.updateWithVersion(instance);
     }
 
     @Override

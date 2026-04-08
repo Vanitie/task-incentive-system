@@ -91,7 +91,7 @@ public class TaskEngine {
                     : userInstances.stream().filter(Objects::nonNull).filter(i -> i.getStatus() != null && i.getStatus() > 0 && i.getTaskId() != null)
                     .collect(Collectors.toMap(UserTaskInstance::getTaskId, i -> i));
 
-            processMatchedTasks(event, eventTaskIds, configs, instanceByTaskId);
+            processMatchedTasksFormal(event, eventTaskIds, configs, instanceByTaskId);
 
             // 4. 已通过 Redis 交集处理完毕，直接返回
             return;
@@ -125,13 +125,50 @@ public class TaskEngine {
         Map<Long, UserTaskInstance> instanceByTaskId = userInstances.stream().filter(Objects::nonNull).filter(i -> i.getStatus() != null && i.getStatus() > 0 && i.getTaskId() != null)
                 .collect(Collectors.toMap(UserTaskInstance::getTaskId, i -> i));
 
-        processMatchedTasks(event, parsedEventTaskIds, configs, instanceByTaskId);
+        processMatchedTasksFormal(event, parsedEventTaskIds, configs, instanceByTaskId);
+    }
+
+    /**
+     * 对照链路：不使用 Redis 缓存与 Kafka 解耦，全部走 DB 同步处理。
+     */
+    public void processEventDirect(UserEvent event) {
+        Set<String> taskIdStrs = taskConfigService.getTaskIdsByEventTypeDirect(event.getEventType());
+        if (taskIdStrs == null || taskIdStrs.isEmpty()) return;
+
+        List<UserTaskInstance> userInstances = instanceService.selectByUserIdDirect(event.getUserId());
+        if (userInstances == null || userInstances.isEmpty()) return;
+
+        Set<Long> acceptedTaskIds = userInstances.stream()
+                .filter(Objects::nonNull)
+                .filter(i -> i.getStatus() != null && i.getStatus() > 0)
+                .map(UserTaskInstance::getTaskId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (acceptedTaskIds.isEmpty()) return;
+
+        Set<Long> parsedEventTaskIds = taskIdStrs.stream().map(s -> {
+            try { return Long.valueOf(s); } catch (Exception e) { return null; }
+        }).filter(Objects::nonNull).collect(Collectors.toSet());
+
+        parsedEventTaskIds.retainAll(acceptedTaskIds);
+        if (parsedEventTaskIds.isEmpty()) return;
+
+        Map<Long, TaskConfig> configs = taskConfigService.getTaskConfigsByIdsDirect(parsedEventTaskIds);
+        Map<Long, UserTaskInstance> instanceByTaskId = userInstances.stream()
+                .filter(Objects::nonNull)
+                .filter(i -> i.getStatus() != null && i.getStatus() > 0 && i.getTaskId() != null)
+                .collect(Collectors.toMap(UserTaskInstance::getTaskId, i -> i, (left, right) -> left));
+
+        processMatchedTasksDirect(event, parsedEventTaskIds, configs, instanceByTaskId);
     }
 
     /**
      * 公共处理逻辑：遍历任务，执行策略、库存、奖励、更新实例
      */
-    private void processMatchedTasks(UserEvent event, Set<Long> taskIds, Map<Long, TaskConfig> configs, Map<Long, UserTaskInstance> instanceByTaskId) {
+    private void processMatchedTasksFormal(UserEvent event,
+                                           Set<Long> taskIds,
+                                           Map<Long, TaskConfig> configs,
+                                           Map<Long, UserTaskInstance> instanceByTaskId) {
         for (Long taskId : taskIds) {
             TaskConfig taskConfig = configs.get(taskId);
             if (taskConfig == null) {
@@ -215,6 +252,97 @@ public class TaskEngine {
                 }
             }
             instanceService.updateAndPublish(instance);
+        }
+    }
+
+    private void processMatchedTasksDirect(UserEvent event,
+                                           Set<Long> taskIds,
+                                           Map<Long, TaskConfig> configs,
+                                           Map<Long, UserTaskInstance> instanceByTaskId) {
+        for (Long taskId : taskIds) {
+            TaskConfig taskConfig = configs.get(taskId);
+            if (taskConfig == null) {
+                log.warn("taskConfig not found, taskId={}", taskId);
+                continue;
+            }
+            if (!isTaskActive(taskConfig, event.getTime())) {
+                log.debug("task not active, taskId={}, userId={}", taskId, event.getUserId());
+                continue;
+            }
+            TaskStrategy strategy = taskStrategyMap.get(taskConfig.getTaskType());
+            if (strategy == null) {
+                log.warn("no strategy for taskType={}, taskId={}", taskConfig.getTaskType(), taskId);
+                continue;
+            }
+            UserTaskInstance instance = instanceByTaskId.get(taskId);
+            if (!isInstanceValid(instance, event.getUserId(), taskId)) {
+                log.debug("invalid user task instance, userId={}, taskId={}", event.getUserId(), taskId);
+                continue;
+            }
+
+            List<Integer> rewardStages = strategy.execute(event, taskConfig, instance);
+            if (rewardStages != null && !rewardStages.isEmpty()) {
+                RiskDecisionRequest riskReq = RiskDecisionRequest.builder()
+                        .requestId(event.getRequestId())
+                        .eventId(event.getEventId())
+                        .userId(event.getUserId())
+                        .taskId(taskId)
+                        .eventType(event.getEventType())
+                        .eventTime(event.getTime())
+                        .amount(taskConfig.getRewardValue())
+                        .resourceType(toRiskResourceType(taskConfig.getRewardType()))
+                        .resourceId(String.valueOf(taskId))
+                        .deviceId(event.getDeviceId())
+                        .ip(event.getIp())
+                        .channel(event.getChannel())
+                        .ext(event.getExt())
+                        .build();
+                RiskDecisionResponse riskResp = riskDecisionService.evaluateDirect(riskReq);
+                if (riskResp == null || riskResp.getDecision() == null) {
+                    log.warn("risk decision empty, taskId={}, userId={}, skip", taskId, event.getUserId());
+                    continue;
+                }
+                String decision = riskResp.getDecision();
+                if ("REJECT".equalsIgnoreCase(decision) || "REVIEW".equalsIgnoreCase(decision)
+                        || "FREEZE".equalsIgnoreCase(decision)) {
+                    log.info("risk blocked, decision={}, taskId={}, userId={}", decision, taskId, event.getUserId());
+                    continue;
+                }
+
+                for (Integer stage : rewardStages) {
+                    StockStrategy stockStrategy = stockStrategyMap.get(taskConfig.getStockType());
+                    boolean stockOk = true;
+                    if (stockStrategy != null) {
+                        stockOk = stockStrategy.acquireStock(taskId, stage);
+                        if (!stockOk) {
+                            log.info("stock not sufficient for taskId={}, stage={}, userId={}, skip reward", taskId, stage, event.getUserId());
+                            continue;
+                        }
+                    }
+
+                    Integer rewardAmount = taskConfig.getRewardValue();
+                    if ("DEGRADE_PASS".equalsIgnoreCase(decision)) {
+                        double ratio = riskResp.getDegradeRatio() == null ? 0.5 : riskResp.getDegradeRatio();
+                        rewardAmount = Math.max(1, (int) Math.floor(rewardAmount * ratio));
+                    }
+
+                    Reward reward = Reward.builder()
+                            .rewardId(IdWorker.getId())
+                            .taskId(taskId)
+                            .rewardType(RewardType.valueOf(taskConfig.getRewardType().toUpperCase()))
+                            .amount(rewardAmount)
+                            .code(rewardAmount)
+                            .stockType(StockType.valueOf(taskConfig.getStockType().toUpperCase()))
+                            .stageIndex(stage)
+                            .build();
+                    rewardService.grantRewardDirect(event.getUserId(), reward);
+                }
+            }
+
+            int updated = instanceService.updateDirect(instance);
+            if (updated <= 0) {
+                log.warn("direct update failed, userId={}, taskId={}, instanceId={}", event.getUserId(), taskId, instance.getId());
+            }
         }
     }
 

@@ -24,6 +24,11 @@ public interface UserTaskInstanceService {
     List<UserTaskInstance> selectByUserId(Long userId);
 
     /**
+     * 仅走数据库按用户ID查询任务进度（压测对照：无缓存）
+     */
+    List<UserTaskInstance> selectByUserIdDirect(Long userId);
+
+    /**
      * 根据用户ID和状态查询任务进度（支持筛选：进行中/已完成/待审核等）
      */
     List<UserTaskInstance> selectByUserIdAndStatus(Long userId, Integer status);
@@ -50,6 +55,11 @@ public interface UserTaskInstanceService {
      * 更新缓存并发布异步持久化消息（Kafka）
      */
     void updateAndPublish(UserTaskInstance instance);
+
+    /**
+     * 同步持久化更新实例（压测对照：无缓存、无Kafka）
+     */
+    int updateDirect(UserTaskInstance instance);
 
     /**
      * 仅获取用户已接取的任务实例；不自动创建新实例。

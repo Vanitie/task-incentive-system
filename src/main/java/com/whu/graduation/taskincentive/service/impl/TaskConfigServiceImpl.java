@@ -305,6 +305,23 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
     }
 
     @Override
+    public Set<String> getTaskIdsByEventTypeDirect(String eventType) {
+        if (eventType == null || eventType.isEmpty()) {
+            return java.util.Collections.emptySet();
+        }
+        List<TaskConfig> list = this.baseMapper.selectList(new QueryWrapper<TaskConfig>().eq("trigger_event", eventType));
+        if (list == null || list.isEmpty()) {
+            return java.util.Collections.emptySet();
+        }
+        return list.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(TaskConfig::getId)
+                .filter(java.util.Objects::nonNull)
+                .map(String::valueOf)
+                .collect(Collectors.toSet());
+    }
+
+    @Override
     public Map<Long, TaskConfig> getTaskConfigsByIds(Set<Long> ids) {
         Map<Long, TaskConfig> result = new HashMap<>();
         if (ids == null || ids.isEmpty()) return result;
@@ -367,6 +384,24 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
         }
 
         // 仍然缺失的 id 可视为无效，记录日志后忽略
+        return result;
+    }
+
+    @Override
+    public Map<Long, TaskConfig> getTaskConfigsByIdsDirect(Set<Long> ids) {
+        Map<Long, TaskConfig> result = new HashMap<>();
+        if (ids == null || ids.isEmpty()) {
+            return result;
+        }
+        List<TaskConfig> dbList = this.baseMapper.selectBatchIds(ids);
+        if (dbList == null || dbList.isEmpty()) {
+            return result;
+        }
+        for (TaskConfig cfg : dbList) {
+            if (cfg != null && cfg.getId() != null) {
+                result.put(cfg.getId(), cfg);
+            }
+        }
         return result;
     }
 
