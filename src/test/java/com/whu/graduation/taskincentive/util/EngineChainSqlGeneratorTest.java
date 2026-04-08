@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -20,8 +21,9 @@ public class EngineChainSqlGeneratorTest {
 
     @Test
     public void generate_shouldWriteSqlAndK6Template() throws Exception {
-        Path sql = Files.createTempFile("engine-chain-", ".sql");
-        Path k6 = Files.createTempFile("engine-chain-", ".js");
+        Path tempDir = Files.createTempDirectory("engine-chain-test");
+        Path sql = tempDir.resolve("engine-chain.sql");
+        Path k6 = tempDir.resolve("engine-chain.js");
 
         new EngineChainSqlGenerator().generate(sql.toString(), k6.toString(), "token-123");
 
@@ -38,8 +40,9 @@ public class EngineChainSqlGeneratorTest {
 
     @Test
     public void generate_shouldUseFallbackToken_whenBlankToken() throws Exception {
-        Path sql = Files.createTempFile("engine-chain-blank-", ".sql");
-        Path k6 = Files.createTempFile("engine-chain-blank-", ".js");
+        Path tempDir = Files.createTempDirectory("engine-chain-test-blank");
+        Path sql = tempDir.resolve("engine-chain-blank.sql");
+        Path k6 = tempDir.resolve("engine-chain-blank.js");
 
         new EngineChainSqlGenerator().generate(sql.toString(), k6.toString(), "   ");
 
@@ -177,7 +180,7 @@ public class EngineChainSqlGeneratorTest {
 
         Path k6 = Files.createTempFile("engine-chain-empty-users-", ".js");
         Throwable ex = assertThrows(Throwable.class, () -> writeK6Template.invoke(generator, k6.toString(), "token"));
-        assertTrue(ex.getCause() instanceof IllegalStateException);
+        assertInstanceOf(IllegalStateException.class, ex.getCause());
     }
 
     @Test
@@ -240,5 +243,4 @@ public class EngineChainSqlGeneratorTest {
         assertEquals(2L, visible.get(0).id);
     }
 }
-
 
