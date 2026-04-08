@@ -14,8 +14,10 @@ const RATE = Number(__ENV.RATE || 200);
 const PRE_VUS = Number(__ENV.PRE_VUS || 800);
 const MAX_VUS = Number(__ENV.MAX_VUS || 12000);
 const DURATION = __ENV.DURATION || '3m';
-const MAX_STAGES_JSON = __ENV.MAX_STAGES_JSON || '[{"target":7000,"duration":"1m"},{"target":8000,"duration":"1m"},{"target":9000,"duration":"1m"},{"target":10000,"duration":"1m"},{"target":11000,"duration":"1m"},{"target":12000,"duration":"1m"}]';
-const EXTREME_QPS_DEFINITION = 'max achieved_qps among stable stages where injection_ratio>=min_injection_ratio, biz_success_rate>=min_biz_success_rate and p95<=max_p95_ms';
+const START_RATE = Number(__ENV.START_RATE || 7000);
+const WINDOW_SEC = Math.max(1, Number(__ENV.WINDOW_SEC || 10));
+const MAX_STAGES_JSON = __ENV.MAX_STAGES_JSON || '[{"start":7000,"target":8000,"duration":"1m"},{"start":8000,"target":9000,"duration":"1m"},{"start":9000,"target":10000,"duration":"1m"},{"start":10000,"target":11000,"duration":"1m"},{"start":11000,"target":12000,"duration":"1m"}]';
+const EXTREME_QPS_DEFINITION = 'max achieved_qps among stable windows where injection_ratio>=min_injection_ratio, biz_success_rate>=min_biz_success_rate and p95<=max_p95_ms';
 
 const TURNING_INJECT_RATIO = Number(__ENV.TURNING_INJECT_RATIO || 0.95);
 const TURNING_BIZ_SUCCESS_RATE = Number(__ENV.TURNING_BIZ_SUCCESS_RATE || 0.995);
@@ -42,13 +44,45 @@ const stage_biz_success_reqs = new Counter('stage_biz_success_reqs');
 const stage_accepted_reqs = new Counter('stage_accepted_reqs');
 const stage_fail_reqs = new Counter('stage_fail_reqs');
 const stage_req_duration = new Trend('stage_req_duration', true);
+const window_reqs = new Counter('window_reqs');
+const window_biz_success_reqs = new Counter('window_biz_success_reqs');
+const window_accepted_reqs = new Counter('window_accepted_reqs');
+const window_fail_reqs = new Counter('window_fail_reqs');
+const window_req_duration = new Trend('window_req_duration', true);
 
 function parseStages() {
+  const defaults = [
+    { start: 7000, target: 8000, duration: '1m' },
+    { start: 8000, target: 9000, duration: '1m' },
+    { start: 9000, target: 10000, duration: '1m' },
+    { start: 10000, target: 11000, duration: '1m' },
+    { start: 11000, target: 12000, duration: '1m' },
+  ];
+  let parsed = defaults;
   try {
-    const parsed = JSON.parse(MAX_STAGES_JSON);
-    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    const fromEnv = JSON.parse(MAX_STAGES_JSON);
+    if (Array.isArray(fromEnv) && fromEnv.length > 0) {
+      parsed = fromEnv;
+    }
   } catch (_) {}
-  return [{ target: 7000, duration: '1m' }, { target: 8000, duration: '1m' }, { target: 9000, duration: '1m' }, { target: 10000, duration: '1m' }, { target: 11000, duration: '1m' }, { target: 12000, duration: '1m' }];
+
+  const normalized = [];
+  let prevTarget = START_RATE > 0 ? START_RATE : 7000;
+  for (let i = 0; i < parsed.length; i++) {
+    const src = parsed[i] || {};
+    const target = Number(src.target);
+    if (!Number.isFinite(target) || target <= 0) continue;
+    const startFromStage = Number(src.start);
+    const start = Number.isFinite(startFromStage) && startFromStage > 0 ? startFromStage : prevTarget;
+    const duration = typeof src.duration === 'string' && src.duration.trim() ? src.duration.trim() : '1m';
+    normalized.push({ start, target, duration });
+    prevTarget = target;
+  }
+
+  if (normalized.length === 0) {
+    return defaults;
+  }
+  return normalized;
 }
 
 function parseDurationToSec(duration) {
@@ -61,6 +95,27 @@ function parseDurationToSec(duration) {
   if (unit === 'm') return value * 60;
   return value * 3600;
 }
+
+function stageWindowMeta(stage, inStageElapsedSec) {
+  const stageDurationSec = Math.max(1, parseDurationToSec(stage.duration));
+  const elapsed = Math.max(0, Math.min(stageDurationSec, inStageElapsedSec));
+  const windowCount = Math.max(1, Math.ceil(stageDurationSec / WINDOW_SEC));
+  const windowIndex = Math.min(windowCount, Math.floor(elapsed / WINDOW_SEC) + 1);
+  const windowStartSec = (windowIndex - 1) * WINDOW_SEC;
+  const windowDurationSec = windowIndex === windowCount
+    ? Math.max(1, stageDurationSec - windowStartSec)
+    : Math.max(1, Math.min(WINDOW_SEC, stageDurationSec));
+  const midSec = Math.min(stageDurationSec, windowStartSec + windowDurationSec / 2);
+  const ratio = stageDurationSec > 0 ? midSec / stageDurationSec : 1;
+  const windowTarget = stage.start + (stage.target - stage.start) * ratio;
+  return {
+    windowIndex,
+    windowDurationSec,
+    windowTarget,
+  };
+}
+
+const STAGES = parseStages();
 
 function buildScenarios() {
   if (TEST_MODE === 'compare') {
@@ -88,11 +143,11 @@ function buildScenarios() {
     return {
       max_probe: {
         executor: 'ramping-arrival-rate',
-        startRate: Number(__ENV.START_RATE || 7000),
+        startRate: STAGES[0] ? STAGES[0].start : START_RATE,
         timeUnit: '1s',
         preAllocatedVUs: PRE_VUS,
         maxVUs: MAX_VUS,
-        stages: parseStages(),
+        stages: STAGES.map((s) => ({ target: s.target, duration: s.duration })),
       },
     };
   }
@@ -145,20 +200,48 @@ function endpointTypeForScenario() {
 
 function stageMeta() {
   if (TEST_MODE !== 'max') {
-    return { stageIndex: 'na', stageTarget: 'na', stageDurationSec: 0 };
+    return {
+      stageIndex: 'na',
+      stageStart: 'na',
+      stageTarget: 'na',
+      stageDurationSec: 0,
+      windowIndex: 'na',
+      windowTarget: 'na',
+      windowDurationSec: 0,
+    };
   }
-  const stages = parseStages();
   const elapsedSec = exec.instance.currentTestRunDuration / 1000;
   let acc = 0;
-  for (let i = 0; i < stages.length; i++) {
-    const sec = parseDurationToSec(stages[i].duration);
+  for (let i = 0; i < STAGES.length; i++) {
+    const stage = STAGES[i];
+    const sec = Math.max(1, parseDurationToSec(stage.duration));
+    const stageStartAt = acc;
     acc += sec;
-    if (elapsedSec <= acc) {
-      return { stageIndex: String(i + 1), stageTarget: String(stages[i].target), stageDurationSec: sec };
+    if (elapsedSec <= acc || i === STAGES.length - 1) {
+      const inStageElapsedSec = Math.max(0, elapsedSec - stageStartAt);
+      const windowMeta = stageWindowMeta(stage, inStageElapsedSec);
+      return {
+        stageIndex: String(i + 1),
+        stageStart: String(stage.start),
+        stageTarget: String(stage.target),
+        stageDurationSec: sec,
+        windowIndex: String(windowMeta.windowIndex),
+        windowTarget: String(windowMeta.windowTarget),
+        windowDurationSec: windowMeta.windowDurationSec,
+      };
     }
   }
-  const last = stages[stages.length - 1];
-  return { stageIndex: String(stages.length), stageTarget: String(last.target), stageDurationSec: parseDurationToSec(last.duration) };
+  const last = STAGES[STAGES.length - 1] || { start: START_RATE, target: START_RATE, duration: '1m' };
+  const fallbackWindow = stageWindowMeta(last, parseDurationToSec(last.duration));
+  return {
+    stageIndex: String(STAGES.length || 1),
+    stageStart: String(last.start),
+    stageTarget: String(last.target),
+    stageDurationSec: Math.max(1, parseDurationToSec(last.duration)),
+    windowIndex: String(fallbackWindow.windowIndex),
+    windowTarget: String(fallbackWindow.windowTarget),
+    windowDurationSec: fallbackWindow.windowDurationSec,
+  };
 }
 
 function parseTags(text) {
@@ -229,7 +312,10 @@ export default function () {
     endpoint_type: endpointType,
     scenario_name: exec.scenario.name || 'na',
     stage_index: meta.stageIndex,
+    stage_start: meta.stageStart,
     stage_target: meta.stageTarget,
+    window_index: meta.windowIndex,
+    window_target: meta.windowTarget,
   };
 
   const reqOptions = { headers, tags };
@@ -266,6 +352,12 @@ export default function () {
   stage_fail_reqs.add(accepted ? 0 : 1, tags);
   stage_req_duration.add(res.timings.duration, tags);
 
+  window_reqs.add(1, tags);
+  window_biz_success_reqs.add(bizSuccess ? 1 : 0, tags);
+  window_accepted_reqs.add(accepted ? 1 : 0, tags);
+  window_fail_reqs.add(accepted ? 0 : 1, tags);
+  window_req_duration.add(res.timings.duration, tags);
+
   sleep(Number(__ENV.SLEEP_SEC || 0));
 }
 
@@ -283,25 +375,78 @@ export function handleSummary(data) {
   const bizSuccessQps = totalDurationSec > 0 ? bizSuccessCount / totalDurationSec : 0;
   const bizAcceptedQps = totalDurationSec > 0 ? bizAcceptedCount / totalDurationSec : 0;
 
-  const stages = parseStages();
+  const stages = STAGES;
   const stageDurationSecMap = {};
+  const windowSpecMap = {};
   for (let i = 0; i < stages.length; i++) {
-    stageDurationSecMap[String(i + 1)] = parseDurationToSec(stages[i].duration);
+    const stage = stages[i];
+    const stageIndex = String(i + 1);
+    const stageDurationSec = Math.max(1, parseDurationToSec(stage.duration));
+    stageDurationSecMap[stageIndex] = stageDurationSec;
+    const windowCount = Math.max(1, Math.ceil(stageDurationSec / WINDOW_SEC));
+    for (let w = 1; w <= windowCount; w++) {
+      const windowStartSec = (w - 1) * WINDOW_SEC;
+      const windowDurationSec = w === windowCount
+        ? Math.max(1, stageDurationSec - windowStartSec)
+        : Math.max(1, Math.min(WINDOW_SEC, stageDurationSec));
+      const midSec = Math.min(stageDurationSec, windowStartSec + windowDurationSec / 2);
+      const ratio = stageDurationSec > 0 ? midSec / stageDurationSec : 1;
+      const windowTarget = stage.start + (stage.target - stage.start) * ratio;
+      windowSpecMap[`${stageIndex}-${w}`] = {
+        stage_duration_sec: stageDurationSec,
+        window_duration_sec: windowDurationSec,
+        window_target: windowTarget,
+      };
+    }
   }
 
   const stageStatsMap = {};
+  const windowStatsMap = {};
   Object.keys(metrics).forEach((name) => {
-    const m = /^(stage_reqs|stage_biz_success_reqs|stage_accepted_reqs|stage_fail_reqs|stage_req_duration)\{(.+)\}$/.exec(name);
-    if (!m) return;
-    const metricName = m[1];
-    const tags = parseTags(m[2]);
+    const stageMatch = /^(stage_reqs|stage_biz_success_reqs|stage_accepted_reqs|stage_fail_reqs|stage_req_duration)\{(.+)}$/.exec(name);
+    if (stageMatch) {
+      const metricName = stageMatch[1];
+      const tags = parseTags(stageMatch[2]);
+      const stageIndex = tags.stage_index;
+      if (!stageIndex || stageIndex === 'na') return;
+      if (!stageStatsMap[stageIndex]) {
+        stageStatsMap[stageIndex] = {
+          stage_index: Number(stageIndex),
+          stage_start: Number(tags.stage_start || 0),
+          stage_target: Number(tags.stage_target || 0),
+          stage_duration_sec: stageDurationSecMap[stageIndex] || 0,
+          request_count: 0,
+          biz_success_count: 0,
+          accepted_count: 0,
+          fail_count: 0,
+          p95_ms: 0,
+        };
+      }
+      const slot = stageStatsMap[stageIndex];
+      if (metricName === 'stage_reqs') slot.request_count = getCount(metrics[name]);
+      if (metricName === 'stage_biz_success_reqs') slot.biz_success_count = getCount(metrics[name]);
+      if (metricName === 'stage_accepted_reqs') slot.accepted_count = getCount(metrics[name]);
+      if (metricName === 'stage_fail_reqs') slot.fail_count = getCount(metrics[name]);
+      if (metricName === 'stage_req_duration') slot.p95_ms = getP95(metrics[name]);
+      return;
+    }
+
+    const windowMatch = /^(window_reqs|window_biz_success_reqs|window_accepted_reqs|window_fail_reqs|window_req_duration)\{(.+)}$/.exec(name);
+    if (!windowMatch) return;
+    const metricName = windowMatch[1];
+    const tags = parseTags(windowMatch[2]);
     const stageIndex = tags.stage_index;
-    if (!stageIndex || stageIndex === 'na') return;
-    if (!stageStatsMap[stageIndex]) {
-      stageStatsMap[stageIndex] = {
+    const windowIndex = tags.window_index;
+    if (!stageIndex || stageIndex === 'na' || !windowIndex || windowIndex === 'na') return;
+    const key = `${stageIndex}-${windowIndex}`;
+    if (!windowStatsMap[key]) {
+      const spec = windowSpecMap[key] || { window_duration_sec: WINDOW_SEC, window_target: Number(tags.window_target || 0) };
+      windowStatsMap[key] = {
         stage_index: Number(stageIndex),
+        window_index: Number(windowIndex),
         stage_target: Number(tags.stage_target || 0),
-        stage_duration_sec: stageDurationSecMap[stageIndex] || 0,
+        window_target: spec.window_target,
+        window_duration_sec: spec.window_duration_sec,
         request_count: 0,
         biz_success_count: 0,
         accepted_count: 0,
@@ -309,12 +454,12 @@ export function handleSummary(data) {
         p95_ms: 0,
       };
     }
-    const slot = stageStatsMap[stageIndex];
-    if (metricName === 'stage_reqs') slot.request_count = getCount(metrics[name]);
-    if (metricName === 'stage_biz_success_reqs') slot.biz_success_count = getCount(metrics[name]);
-    if (metricName === 'stage_accepted_reqs') slot.accepted_count = getCount(metrics[name]);
-    if (metricName === 'stage_fail_reqs') slot.fail_count = getCount(metrics[name]);
-    if (metricName === 'stage_req_duration') slot.p95_ms = getP95(metrics[name]);
+    const slot = windowStatsMap[key];
+    if (metricName === 'window_reqs') slot.request_count = getCount(metrics[name]);
+    if (metricName === 'window_biz_success_reqs') slot.biz_success_count = getCount(metrics[name]);
+    if (metricName === 'window_accepted_reqs') slot.accepted_count = getCount(metrics[name]);
+    if (metricName === 'window_fail_reqs') slot.fail_count = getCount(metrics[name]);
+    if (metricName === 'window_req_duration') slot.p95_ms = getP95(metrics[name]);
   });
 
   const stageMetrics = Object.keys(stageStatsMap)
@@ -331,6 +476,7 @@ export function handleSummary(data) {
         && s.p95_ms <= TURNING_P95_MS;
       return {
         stage_index: s.stage_index,
+        stage_start: s.stage_start,
         stage_target: s.stage_target,
         stage_duration_sec: s.stage_duration_sec,
         achieved_qps: achievedQps,
@@ -342,16 +488,72 @@ export function handleSummary(data) {
       };
     });
 
+  const windowMetrics = Object.keys(windowStatsMap)
+    .sort((a, b) => {
+      const [sa, wa] = a.split('-').map((x) => Number(x));
+      const [sb, wb] = b.split('-').map((x) => Number(x));
+      if (sa !== sb) return sa - sb;
+      return wa - wb;
+    })
+    .map((key) => {
+      const w = windowStatsMap[key];
+      const duration = w.window_duration_sec > 0 ? w.window_duration_sec : 1;
+      const achievedQps = w.request_count / duration;
+      const bizSuccessRate = w.request_count > 0 ? w.biz_success_count / w.request_count : 0;
+      const acceptedRate = w.request_count > 0 ? w.accepted_count / w.request_count : 0;
+      const reachedInject = w.window_target > 0 ? achievedQps / w.window_target : 0;
+      const stable = reachedInject >= TURNING_INJECT_RATIO
+        && bizSuccessRate >= TURNING_BIZ_SUCCESS_RATE
+        && w.p95_ms <= TURNING_P95_MS;
+      return {
+        stage_index: w.stage_index,
+        window_index: w.window_index,
+        stage_target: w.stage_target,
+        window_target: w.window_target,
+        window_duration_sec: w.window_duration_sec,
+        achieved_qps: achievedQps,
+        injection_ratio: reachedInject,
+        biz_success_rate: bizSuccessRate,
+        accepted_rate: acceptedRate,
+        p95_ms: w.p95_ms,
+        stable: stable,
+      };
+    });
+
   let turningPoint = null;
   let extremeQps = 0;
   let extremeStageIndex = null;
+  let extremeWindowIndex = null;
+  windowMetrics.forEach((w) => {
+    if (w.stable && w.achieved_qps > extremeQps) {
+      extremeQps = w.achieved_qps;
+      extremeStageIndex = w.stage_index;
+      extremeWindowIndex = w.window_index;
+    }
+    if (!turningPoint && !w.stable && w.window_target > 0) {
+      turningPoint = {
+        scope: 'window',
+        stage_index: w.stage_index,
+        window_index: w.window_index,
+        stage_target: w.stage_target,
+        window_target: w.window_target,
+        achieved_qps: w.achieved_qps,
+        injection_ratio: w.injection_ratio,
+        biz_success_rate: w.biz_success_rate,
+        p95_ms: w.p95_ms,
+      };
+    }
+  });
+
   stageMetrics.forEach((s) => {
     if (s.stable && s.achieved_qps > extremeQps) {
       extremeQps = s.achieved_qps;
       extremeStageIndex = s.stage_index;
+      extremeWindowIndex = null;
     }
     if (!turningPoint && !s.stable && s.stage_target > 0) {
       turningPoint = {
+        scope: 'stage',
         stage_index: s.stage_index,
         stage_target: s.stage_target,
         achieved_qps: s.achieved_qps,
@@ -361,7 +563,40 @@ export function handleSummary(data) {
       };
     }
   });
-  const limitDerivedFrom = extremeQps > 0 ? 'stable_stages' : 'global_biz_success_qps_fallback';
+
+  const stableSegments = [];
+  let openSegment = null;
+  windowMetrics.forEach((w) => {
+    if (w.stable) {
+      if (!openSegment) {
+        openSegment = {
+          start_stage_index: w.stage_index,
+          start_window_index: w.window_index,
+          end_stage_index: w.stage_index,
+          end_window_index: w.window_index,
+          windows: 1,
+          max_achieved_qps: w.achieved_qps,
+        };
+      } else {
+        openSegment.end_stage_index = w.stage_index;
+        openSegment.end_window_index = w.window_index;
+        openSegment.windows += 1;
+        if (w.achieved_qps > openSegment.max_achieved_qps) {
+          openSegment.max_achieved_qps = w.achieved_qps;
+        }
+      }
+    } else if (openSegment) {
+      stableSegments.push(openSegment);
+      openSegment = null;
+    }
+  });
+  if (openSegment) {
+    stableSegments.push(openSegment);
+  }
+
+  const limitDerivedFrom = extremeQps > 0
+    ? (extremeWindowIndex == null ? 'stable_stages' : 'stable_windows')
+    : 'global_biz_success_qps_fallback';
   if (extremeQps <= 0) {
     extremeQps = bizSuccessQps;
   }
@@ -375,7 +610,7 @@ export function handleSummary(data) {
   }
 
   const extendedSummary = {
-    analysis_version: 'v3',
+    analysis_version: 'v4',
     mode: {
       test_mode: TEST_MODE,
       target_mode: TARGET_MODE,
@@ -400,13 +635,17 @@ export function handleSummary(data) {
     },
     turning_point: turningPoint,
     stage_metrics: stageMetrics,
+    window_metrics: windowMetrics,
+    stable_segments: stableSegments,
     turning_rule: {
+      window_sec: WINDOW_SEC,
       min_injection_ratio: TURNING_INJECT_RATIO,
       min_biz_success_rate: TURNING_BIZ_SUCCESS_RATE,
       max_p95_ms: TURNING_P95_MS,
       extreme_qps_definition: EXTREME_QPS_DEFINITION,
       extreme_qps_derived_from: limitDerivedFrom,
       extreme_qps_stage_index: extremeStageIndex,
+      extreme_qps_window_index: extremeWindowIndex,
     },
     local_run_assessment: {
       is_local_optimistic: localOptimistic,

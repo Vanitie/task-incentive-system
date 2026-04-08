@@ -4,11 +4,10 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -26,8 +25,8 @@ public class EngineChainSqlGeneratorTest {
 
         new EngineChainSqlGenerator().generate(sql.toString(), k6.toString(), "token-123");
 
-        String sqlText = Files.readString(sql, Charset.defaultCharset());
-        String k6Text = Files.readString(k6, Charset.defaultCharset());
+        String sqlText = Files.readString(sql, StandardCharsets.UTF_8);
+        String k6Text = Files.readString(k6, StandardCharsets.UTF_8);
 
         assertTrue(sqlText.contains("INSERT INTO task_config"));
         assertTrue(sqlText.contains("INSERT INTO risk_decision_log"));
@@ -44,7 +43,7 @@ public class EngineChainSqlGeneratorTest {
 
         new EngineChainSqlGenerator().generate(sql.toString(), k6.toString(), "   ");
 
-        String k6Text = Files.readString(k6, Charset.defaultCharset());
+        String k6Text = Files.readString(k6, StandardCharsets.UTF_8);
         assertTrue(k6Text.contains("const BEARER_TOKEN = __ENV.BEARER_TOKEN || ''"));
     }
 
