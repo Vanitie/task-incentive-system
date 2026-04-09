@@ -10,13 +10,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Configuration
 public class ThreadPoolConfig {
 
-    @Value("${app.executors.task-engine-event.core-pool-size:32}")
+    @Value("${app.executors.task-engine-event.core-pool-size:64}")
     private int corePoolSize;
 
-    @Value("${app.executors.task-engine-event.max-pool-size:128}")
+    @Value("${app.executors.task-engine-event.max-pool-size:256}")
     private int maxPoolSize;
 
-    @Value("${app.executors.task-engine-event.queue-capacity:20000}")
+    @Value("${app.executors.task-engine-event.queue-capacity:8000}")
     private int queueCapacity;
 
     @Value("${app.executors.task-engine-event.keep-alive-seconds:60}")

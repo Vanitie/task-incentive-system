@@ -145,6 +145,23 @@ class TaskPersistenceConsumerTest {
     }
 
     @Test
+    void consume_shouldSupportInstanceWrapper_andAck() {
+        UserTaskInstance payload = new UserTaskInstance();
+        payload.setId(4021L);
+        String wrapped = "{\"messageId\":\"m-instance\",\"instance\":" + JSON.toJSONString(payload) + "}";
+
+        when(redisTemplate.hasKey("mq:processed:m-instance")).thenReturn(false);
+        when(instanceService.updateWithVersion(any(UserTaskInstance.class))).thenReturn(1);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.setIfAbsent(eq("mq:processed:m-instance"), eq("1"), anyLong(), eq(TimeUnit.DAYS))).thenReturn(true);
+
+        consumer.consume(wrapped, acknowledgment);
+
+        verify(instanceService).updateWithVersion(any(UserTaskInstance.class));
+        verify(acknowledgment).acknowledge();
+    }
+
+    @Test
     void consume_shouldProceedWhenDedupCheckThrows() {
         UserTaskInstance payload = new UserTaskInstance();
         payload.setId(403L);
@@ -210,6 +227,19 @@ class TaskPersistenceConsumerTest {
         verify(redisTemplate, never()).hasKey(anyString());
         verify(redisTemplate, never()).opsForValue();
         verify(instanceService).updateWithVersion(any(UserTaskInstance.class));
+        verify(acknowledgment).acknowledge();
+    }
+
+    @Test
+    void consume_shouldSendDlqAndAckWhenMissingInstanceId() {
+        String wrapped = "{\"messageId\":\"m-missing-id\",\"payload\":{\"version\":1}}";
+
+        when(redisTemplate.hasKey("mq:processed:m-missing-id")).thenReturn(false);
+
+        consumer.consume(wrapped, acknowledgment);
+
+        verify(errorPublisher).publishToDlq(eq("task-persist-topic"), eq(wrapped), eq("m-missing-id"), eq("missing instance id"), any(Map.class));
+        verify(instanceService, never()).updateWithVersion(any(UserTaskInstance.class));
         verify(acknowledgment).acknowledge();
     }
 

@@ -44,7 +44,7 @@ public class TaskPersistenceConsumer {
                 if (obj.containsKey("messageId")) {
                     messageId = obj.getString("messageId");
                 }
-                // 常见的封装字段：payload / data / body
+                // 常见的封装字段：payload / data / body / instance
                 if (obj.containsKey("payload")) {
                     Object p = obj.get("payload");
                     payload = p instanceof String ? (String) p : JSONObject.toJSONString(p);
@@ -53,6 +53,9 @@ public class TaskPersistenceConsumer {
                     payload = p instanceof String ? (String) p : JSONObject.toJSONString(p);
                 } else if (obj.containsKey("body")) {
                     Object p = obj.get("body");
+                    payload = p instanceof String ? (String) p : JSONObject.toJSONString(p);
+                } else if (obj.containsKey("instance")) {
+                    Object p = obj.get("instance");
                     payload = p instanceof String ? (String) p : JSONObject.toJSONString(p);
                 }
             }
@@ -88,6 +91,17 @@ public class TaskPersistenceConsumer {
             try {
                 errorPublisher.publishToDlq("task-persist-topic", message, messageId, e.getMessage(),
                         Map.of("source", "TaskPersistenceConsumer", "exceptionClass", e.getClass().getName(), "retryCount", 0));
+            } catch (Exception ignored) {}
+            acknowledgment.acknowledge();
+            return;
+        }
+
+        // 关键字段缺失时直接进入 DLQ，避免刷出大量 id=null 的误导性 WARN
+        if (instance == null || instance.getId() == null) {
+            log.error("invalid task persistence message, missing instance id, messageId={}, payload={}", messageId, payload);
+            try {
+                errorPublisher.publishToDlq("task-persist-topic", message, messageId, "missing instance id",
+                        Map.of("source", "TaskPersistenceConsumer", "retryCount", 0));
             } catch (Exception ignored) {}
             acknowledgment.acknowledge();
             return;
