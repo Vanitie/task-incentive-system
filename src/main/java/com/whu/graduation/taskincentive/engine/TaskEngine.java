@@ -21,6 +21,7 @@ import com.whu.graduation.taskincentive.mq.UserActionLogPersistMessage;
 import com.whu.graduation.taskincentive.mq.UserActionLogPersistProducer;
 import com.whu.graduation.taskincentive.service.UserActionLogService;
 import com.whu.graduation.taskincentive.service.risk.RiskDecisionService;
+import com.whu.graduation.taskincentive.config.AppProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -67,6 +68,9 @@ public class TaskEngine {
 
     @Autowired
     private UserActionLogService userActionLogService;
+
+    @Autowired
+    private AppProperties appProperties;
 
     /**
      * 处理用户事件：TaskEngine 只负责编排，缓存/Redis/Kafka 交由相应的 Service 处理
@@ -186,7 +190,9 @@ public class TaskEngine {
         for (Long taskId : taskIds) {
             TaskConfig taskConfig = configs.get(taskId);
             if (taskConfig == null) {
-                log.warn("taskConfig not found, taskId={}", taskId);
+                if (isMainPathLogEnabled()) {
+                    log.warn("taskConfig not found, taskId={}", taskId);
+                }
                 continue;
             }
             if (!isTaskActive(taskConfig, event.getTime())) {
@@ -195,7 +201,9 @@ public class TaskEngine {
             }
             TaskStrategy strategy = taskStrategyMap.get(taskConfig.getTaskType());
             if (strategy == null) {
-                log.warn("no strategy for taskType={}, taskId={}", taskConfig.getTaskType(), taskId);
+                if (isMainPathLogEnabled()) {
+                    log.warn("no strategy for taskType={}, taskId={}", taskConfig.getTaskType(), taskId);
+                }
                 continue;
             }
             UserTaskInstance instance = instanceByTaskId.get(taskId);
@@ -224,13 +232,17 @@ public class TaskEngine {
                         .build();
                 RiskDecisionResponse riskResp = riskDecisionService.evaluate(riskReq);
                 if (riskResp == null || riskResp.getDecision() == null) {
-                    log.warn("risk decision empty, taskId={}, userId={}, skip", taskId, event.getUserId());
+                    if (isMainPathLogEnabled()) {
+                        log.warn("risk decision empty, taskId={}, userId={}, skip", taskId, event.getUserId());
+                    }
                     continue;
                 }
                 String decision = riskResp.getDecision();
                 if ("REJECT".equalsIgnoreCase(decision) || "REVIEW".equalsIgnoreCase(decision)
                         || "FREEZE".equalsIgnoreCase(decision)) {
-                    log.info("risk blocked, decision={}, taskId={}, userId={}", decision, taskId, event.getUserId());
+                    if (isMainPathLogEnabled()) {
+                        log.info("risk blocked, decision={}, taskId={}, userId={}", decision, taskId, event.getUserId());
+                    }
                     continue;
                 }
 
@@ -241,7 +253,9 @@ public class TaskEngine {
                     if (stockStrategy != null) {
                         stockOk = stockStrategy.acquireStock(taskId, stage);
                         if (!stockOk) {
-                            log.info("stock not sufficient for taskId={}, stage={}, userId={}, skip reward", taskId, stage, event.getUserId());
+                            if (isMainPathLogEnabled()) {
+                                log.info("stock not sufficient for taskId={}, stage={}, userId={}, skip reward", taskId, stage, event.getUserId());
+                            }
                             continue;
                         }
                     }
@@ -276,7 +290,9 @@ public class TaskEngine {
         for (Long taskId : taskIds) {
             TaskConfig taskConfig = configs.get(taskId);
             if (taskConfig == null) {
-                log.warn("taskConfig not found, taskId={}", taskId);
+                if (isMainPathLogEnabled()) {
+                    log.warn("taskConfig not found, taskId={}", taskId);
+                }
                 continue;
             }
             if (!isTaskActive(taskConfig, event.getTime())) {
@@ -285,7 +301,9 @@ public class TaskEngine {
             }
             TaskStrategy strategy = taskStrategyMap.get(taskConfig.getTaskType());
             if (strategy == null) {
-                log.warn("no strategy for taskType={}, taskId={}", taskConfig.getTaskType(), taskId);
+                if (isMainPathLogEnabled()) {
+                    log.warn("no strategy for taskType={}, taskId={}", taskConfig.getTaskType(), taskId);
+                }
                 continue;
             }
             UserTaskInstance instance = instanceByTaskId.get(taskId);
@@ -313,13 +331,17 @@ public class TaskEngine {
                         .build();
                 RiskDecisionResponse riskResp = riskDecisionService.evaluateDirect(riskReq);
                 if (riskResp == null || riskResp.getDecision() == null) {
-                    log.warn("risk decision empty, taskId={}, userId={}, skip", taskId, event.getUserId());
+                    if (isMainPathLogEnabled()) {
+                        log.warn("risk decision empty, taskId={}, userId={}, skip", taskId, event.getUserId());
+                    }
                     continue;
                 }
                 String decision = riskResp.getDecision();
                 if ("REJECT".equalsIgnoreCase(decision) || "REVIEW".equalsIgnoreCase(decision)
                         || "FREEZE".equalsIgnoreCase(decision)) {
-                    log.info("risk blocked, decision={}, taskId={}, userId={}", decision, taskId, event.getUserId());
+                    if (isMainPathLogEnabled()) {
+                        log.info("risk blocked, decision={}, taskId={}, userId={}", decision, taskId, event.getUserId());
+                    }
                     continue;
                 }
 
@@ -329,7 +351,9 @@ public class TaskEngine {
                     if (stockStrategy != null) {
                         stockOk = stockStrategy.acquireStock(taskId, stage);
                         if (!stockOk) {
-                            log.info("stock not sufficient for taskId={}, stage={}, userId={}, skip reward", taskId, stage, event.getUserId());
+                            if (isMainPathLogEnabled()) {
+                                log.info("stock not sufficient for taskId={}, stage={}, userId={}, skip reward", taskId, stage, event.getUserId());
+                            }
                             continue;
                         }
                     }
@@ -355,7 +379,9 @@ public class TaskEngine {
 
             int updated = instanceService.updateDirect(instance);
             if (updated <= 0) {
-                log.warn("direct update failed, userId={}, taskId={}, instanceId={}", event.getUserId(), taskId, instance.getId());
+                if (isMainPathLogEnabled()) {
+                    log.warn("direct update failed, userId={}, taskId={}, instanceId={}", event.getUserId(), taskId, instance.getId());
+                }
             }
         }
     }
@@ -408,7 +434,9 @@ public class TaskEngine {
             String userKey = event.getUserId() == null ? "0" : String.valueOf(event.getUserId());
             userActionLogPersistProducer.send(userKey, msg);
         } catch (Exception e) {
-            log.warn("async user action log persist send failed, userId={}, eventType={}", event.getUserId(), event.getEventType(), e);
+            if (isMainPathLogEnabled()) {
+                log.warn("async user action log persist send failed, userId={}, eventType={}", event.getUserId(), event.getEventType(), e);
+            }
         }
     }
 
@@ -420,8 +448,16 @@ public class TaskEngine {
         try {
             userActionLogService.save(actionLog);
         } catch (Exception e) {
-            log.warn("direct user action log persist failed, userId={}, eventType={}", event.getUserId(), event.getEventType(), e);
+            if (isMainPathLogEnabled()) {
+                log.warn("direct user action log persist failed, userId={}, eventType={}", event.getUserId(), event.getEventType(), e);
+            }
         }
+    }
+
+    private boolean isMainPathLogEnabled() {
+        return appProperties == null
+                || appProperties.getLogControl() == null
+                || appProperties.getLogControl().isMainPathEnabled();
     }
 
     private UserActionLog buildActionLog(UserEvent event) {

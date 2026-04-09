@@ -20,6 +20,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -51,7 +52,22 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
     @Autowired
     private UserMapper userMapper;
 
+    @Value("${app.cache-warmup.user-task-redis-ttl-minutes:120}")
+    private long userTaskRedisTtlMinutes = -1L;
+
     private static final String TASK_TOPIC = "task-persist-topic";
+
+    private long resolveUserTaskTtlMinutes() {
+        return userTaskRedisTtlMinutes > 0 ? userTaskRedisTtlMinutes : 120L;
+    }
+
+    private void setUserTaskCache(String key, String payload) {
+        redisTemplate.opsForValue().set(key, payload, resolveUserTaskTtlMinutes(), java.util.concurrent.TimeUnit.MINUTES);
+    }
+
+    private void setUserTaskCache(Long userId, Long taskId, String payload) {
+        setUserTaskCache(buildUserTaskKey(userId, taskId), payload);
+    }
 
     private String buildUserTaskKey(Long userId, Long taskId) {
         return "userTask:" + userId + ":" + taskId;
@@ -104,12 +120,12 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
                     @Override
                     public void afterCommit() {
                         try { redisTemplate.opsForSet().add(buildUserAcceptedSetKey(progress.getUserId()), String.valueOf(progress.getTaskId())); } catch (Exception e) { log.debug("sadd user accepted failed afterCommit, err={}", e.getMessage()); }
-                        try { redisTemplate.opsForValue().set(buildUserTaskKey(progress.getUserId(), progress.getTaskId()), JSON.toJSONString(progress)); } catch (Exception e) { log.debug("redis set userTask failed afterCommit, err={}", e.getMessage()); }
+                        try { setUserTaskCache(progress.getUserId(), progress.getTaskId(), JSON.toJSONString(progress)); } catch (Exception e) { log.debug("redis set userTask failed afterCommit, err={}", e.getMessage()); }
                     }
                 });
             } else {
                 try { redisTemplate.opsForSet().add(buildUserAcceptedSetKey(progress.getUserId()), String.valueOf(progress.getTaskId())); } catch (Exception ignore) {}
-                try { redisTemplate.opsForValue().set(buildUserTaskKey(progress.getUserId(), progress.getTaskId()), JSON.toJSONString(progress)); } catch (Exception ignore) {}
+                try { setUserTaskCache(progress.getUserId(), progress.getTaskId(), JSON.toJSONString(progress)); } catch (Exception ignore) {}
             }
         }
         return updated;
@@ -191,7 +207,7 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
             for (UserTaskInstance instance : dbResult) {
                 String key = buildUserTaskKey(userId, instance.getTaskId());
                 try {
-                    redisTemplate.opsForValue().set(key, JSON.toJSONString(instance), 10, java.util.concurrent.TimeUnit.MINUTES);
+                    setUserTaskCache(key, JSON.toJSONString(instance));
                 } catch (Exception ignore) {}
                 newTaskIdSet.add(String.valueOf(instance.getTaskId()));
             }
@@ -217,7 +233,7 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
         int safeHotUsers = Math.max(1, maxHotUsers);
         int safeInstancesPerUser = Math.max(1, maxInstancesPerUser);
         int safeTotalInstances = Math.max(1, maxTotalInstances);
-        long safeTtlMinutes = userTaskRedisTtlMinutes > 0 ? userTaskRedisTtlMinutes : 10L;
+        long safeTtlMinutes = userTaskRedisTtlMinutes > 0 ? userTaskRedisTtlMinutes : resolveUserTaskTtlMinutes();
 
         List<Long> hotUserIds = userTaskInstanceMapper.selectHotUserIds(safeHotUsers);
         if (hotUserIds == null || hotUserIds.isEmpty()) {
@@ -374,11 +390,11 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
                 TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                     @Override
                     public void afterCommit() {
-                        try { redisTemplate.opsForValue().set(key, JSON.toJSONString(toCache)); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", key, e.getMessage()); }
+                        try { setUserTaskCache(key, JSON.toJSONString(toCache)); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", key, e.getMessage()); }
                     }
                 });
             } else {
-                try { redisTemplate.opsForValue().set(key, JSON.toJSONString(instance)); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", key, e.getMessage()); }
+                try { setUserTaskCache(key, JSON.toJSONString(instance)); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", key, e.getMessage()); }
             }
         }
         return instance;
@@ -403,7 +419,7 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
                 @Override
                 public void afterCommit() {
                     if (finalPayload != null) {
-                        try { redisTemplate.opsForValue().set(key, finalPayload); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", key, e.getMessage()); }
+                        try { setUserTaskCache(key, finalPayload); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", key, e.getMessage()); }
                     }
 
                     try {
@@ -418,7 +434,7 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
             });
         } else {
             if (finalPayload != null) {
-                try { redisTemplate.opsForValue().set(key, finalPayload); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", key, e.getMessage()); }
+                try { setUserTaskCache(key, finalPayload); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", key, e.getMessage()); }
             }
             try {
                 JSONObject wrapper = new JSONObject();
@@ -501,12 +517,12 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
                 TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                     @Override
                     public void afterCommit() {
-                        try { redisTemplate.opsForValue().set(buildUserTaskKey(userId, taskId), JSON.toJSONString(toCache)); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", buildUserTaskKey(userId, taskId), e.getMessage()); }
+                        try { setUserTaskCache(userId, taskId, JSON.toJSONString(toCache)); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", buildUserTaskKey(userId, taskId), e.getMessage()); }
                         try { redisTemplate.opsForSet().add(buildUserAcceptedSetKey(userId), String.valueOf(taskId)); } catch (Exception e) { log.debug("sadd user accepted failed afterCommit, err={}", e.getMessage()); }
                     }
                 });
             } else {
-                try { redisTemplate.opsForValue().set(buildUserTaskKey(userId, taskId), JSON.toJSONString(instance)); } catch (Exception ignore){}
+                try { setUserTaskCache(userId, taskId, JSON.toJSONString(instance)); } catch (Exception ignore){}
                 try { redisTemplate.opsForSet().add(buildUserAcceptedSetKey(userId), String.valueOf(taskId)); } catch (Exception ignore){}
             }
 
@@ -532,12 +548,12 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
                 TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                     @Override
                     public void afterCommit() {
-                        try { redisTemplate.opsForValue().set(buildUserTaskKey(userId, taskId), JSON.toJSONString(toCache)); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", buildUserTaskKey(userId, taskId), e.getMessage()); }
+                        try { setUserTaskCache(userId, taskId, JSON.toJSONString(toCache)); } catch (Exception e) { log.debug("redis write failed for key={}, err={}", buildUserTaskKey(userId, taskId), e.getMessage()); }
                         try { redisTemplate.opsForSet().add(buildUserAcceptedSetKey(userId), String.valueOf(taskId)); } catch (Exception e) { log.debug("sadd user accepted failed afterCommit, err={}", e.getMessage()); }
                     }
                 });
             } else {
-                try { redisTemplate.opsForValue().set(buildUserTaskKey(userId, taskId), JSON.toJSONString(instance)); } catch (Exception ignore){}
+                try { setUserTaskCache(userId, taskId, JSON.toJSONString(instance)); } catch (Exception ignore){}
                 try { redisTemplate.opsForSet().add(buildUserAcceptedSetKey(userId), String.valueOf(taskId)); } catch (Exception ignore){}
             }
 

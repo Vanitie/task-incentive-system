@@ -147,7 +147,7 @@ public class UserTaskInstanceServiceImplTest {
         assertNotNull(res);
         assertEquals(1L, res.getUserId());
         assertEquals(20L, res.getTaskId());
-        verify(valueOps, times(1)).set(anyString(), anyString());
+        verify(valueOps, times(1)).set(anyString(), anyString(), anyLong(), any());
     }
 
     @Test
@@ -186,7 +186,7 @@ public class UserTaskInstanceServiceImplTest {
         assertNotNull(out);
         assertEquals(UserTaskStatus.ACCEPTED.getCode(), out.getStatus());
         verify(mapper, times(1)).updateById(any());
-        verify(valueOps, atLeastOnce()).set(anyString(), anyString());
+        verify(valueOps, atLeastOnce()).set(anyString(), anyString(), anyLong(), any());
     }
 
     @Test
@@ -204,7 +204,7 @@ public class UserTaskInstanceServiceImplTest {
 
         boolean updated = service.update(inst);
         // update returns boolean but we mocked mapper; ensure it triggers redis set in non-transaction path
-        verify(valueOps, times(1)).set(anyString(), anyString());
+        verify(valueOps, times(1)).set(anyString(), anyString(), anyLong(), any());
     }
 
     @Test
@@ -261,7 +261,7 @@ public class UserTaskInstanceServiceImplTest {
             }
 
             verify(setOps, times(1)).add(anyString(), anyString());
-            verify(valueOps, times(1)).set(anyString(), anyString());
+            verify(valueOps, times(1)).set(anyString(), anyString(), anyLong(), any());
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
@@ -301,7 +301,7 @@ public class UserTaskInstanceServiceImplTest {
             for (TransactionSynchronization sync : TransactionSynchronizationManager.getSynchronizations()) {
                 sync.afterCommit();
             }
-            verify(valueOps, times(1)).set(anyString(), anyString());
+            verify(valueOps, times(1)).set(anyString(), anyString(), anyLong(), any());
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
@@ -331,7 +331,7 @@ public class UserTaskInstanceServiceImplTest {
                 sync.afterCommit();
             }
 
-            verify(valueOps, times(1)).set(anyString(), anyString());
+            verify(valueOps, times(1)).set(anyString(), anyString(), anyLong(), any());
             verify(kafka, times(1)).send(anyString(), anyString(), anyString());
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
@@ -841,7 +841,7 @@ public class UserTaskInstanceServiceImplTest {
 
         service.updateAndPublish(inst);
 
-        verify(valueOps, times(1)).set(anyString(), anyString());
+        verify(valueOps, times(1)).set(anyString(), anyString(), anyLong(), any());
         verify(kafka, times(1)).send(anyString(), eq("55"), anyString());
     }
 
@@ -985,7 +985,7 @@ public class UserTaskInstanceServiceImplTest {
                 sync.afterCommit();
             }
 
-            verify(valueOps, times(1)).set(anyString(), anyString());
+            verify(valueOps, times(1)).set(anyString(), anyString(), anyLong(), any());
             verify(setOps, times(1)).add(anyString(), eq("8005"));
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
@@ -1017,7 +1017,7 @@ public class UserTaskInstanceServiceImplTest {
                 sync.afterCommit();
             }
 
-            verify(valueOps, times(1)).set(anyString(), anyString());
+            verify(valueOps, times(1)).set(anyString(), anyString(), anyLong(), any());
             verify(setOps, times(1)).add(anyString(), eq("8006"));
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
@@ -1110,7 +1110,7 @@ public class UserTaskInstanceServiceImplTest {
         doThrow(new RuntimeException("kafka down")).when(kafka).send(anyString(), anyString(), anyString());
 
         assertDoesNotThrow(() -> service.updateAndPublish(inst));
-        verify(valueOps, times(1)).set(anyString(), anyString());
+        verify(valueOps, times(1)).set(anyString(), anyString(), anyLong(), any());
         verify(kafka, times(1)).send(anyString(), eq("88"), anyString());
     }
 

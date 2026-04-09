@@ -355,24 +355,24 @@ public class EngineChainSqlGenerator {
         LocalDateTime now = LocalDateTime.now();
 
         // GLOBAL
-        quotas.add(new RiskQuotaSeed(nextId(), "全局分钟总量", "GLOBAL", "ALL", "MINUTE", 5000, 0, now.plusMinutes(1), now, "ALL", "ALL"));
-        quotas.add(new RiskQuotaSeed(nextId(), "全局小时总量", "GLOBAL", "ALL", "HOUR", 20000, 0, now.plusHours(1), now, "ALL", "ALL"));
-        quotas.add(new RiskQuotaSeed(nextId(), "全局日总量", "GLOBAL", "ALL", "DAY", 100000, 0, now.plusDays(1), now, "ALL", "ALL"));
-        quotas.add(new RiskQuotaSeed(nextId(), "全局积分日总量", "GLOBAL", "ALL", "DAY", 60000, 0, now.plusDays(1), now, "POINT", "ALL"));
+        quotas.add(new RiskQuotaSeed(nextId(), "全局分钟总量", "GLOBAL", "ALL", "MINUTE", 600000, 0, now.plusMinutes(1), now, "ALL", "ALL"));
+        quotas.add(new RiskQuotaSeed(nextId(), "全局小时总量", "GLOBAL", "ALL", "HOUR", 36000000, 0, now.plusHours(1), now, "ALL", "ALL"));
+        quotas.add(new RiskQuotaSeed(nextId(), "全局日总量", "GLOBAL", "ALL", "DAY", 500000000, 0, now.plusDays(1), now, "ALL", "ALL"));
+        quotas.add(new RiskQuotaSeed(nextId(), "全局积分日总量", "GLOBAL", "ALL", "DAY", 180000000, 0, now.plusDays(1), now, "POINT", "ALL"));
 
         // TASK ALL + specific tasks
-        quotas.add(new RiskQuotaSeed(nextId(), "任务层级日总量", "TASK", "ALL", "DAY", 5000, 0, now.plusDays(1), now, "ALL", "ALL"));
+        quotas.add(new RiskQuotaSeed(nextId(), "任务层级日总量", "TASK", "ALL", "DAY", 80000000, 0, now.plusDays(1), now, "ALL", "ALL"));
         for (int i = 0; i < Math.min(6, tasks.size()); i++) {
             TaskSeed t = tasks.get(i);
-            quotas.add(new RiskQuotaSeed(nextId(), "任务" + t.taskName + "日限额", "TASK", String.valueOf(t.id), "DAY", rand(200, 800), 0,
+            quotas.add(new RiskQuotaSeed(nextId(), "任务" + t.taskName + "日限额", "TASK", String.valueOf(t.id), "DAY", rand(300000, 1000000), 0,
                     now.plusDays(1), now, t.rewardType, String.valueOf(t.id)));
         }
 
         // USER ALL + specific users
-        quotas.add(new RiskQuotaSeed(nextId(), "用户层级小时总量", "USER", "ALL", "HOUR", 80, 0, now.plusHours(1), now, "ALL", "ALL"));
-        quotas.add(new RiskQuotaSeed(nextId(), "用户层级日总量", "USER", "ALL", "DAY", 300, 0, now.plusDays(1), now, "ALL", "ALL"));
+        quotas.add(new RiskQuotaSeed(nextId(), "用户层级小时总量", "USER", "ALL", "HOUR", 4000, 0, now.plusHours(1), now, "ALL", "ALL"));
+        quotas.add(new RiskQuotaSeed(nextId(), "用户层级日总量", "USER", "ALL", "DAY", 100000, 0, now.plusDays(1), now, "ALL", "ALL"));
         for (int i = 0; i < Math.min(10, users.size()); i++) {
-            quotas.add(new RiskQuotaSeed(nextId(), "用户" + users.get(i).username + "日限额", "USER", String.valueOf(users.get(i).id), "DAY", rand(50, 150), 0,
+            quotas.add(new RiskQuotaSeed(nextId(), "用户" + users.get(i).username + "日限额", "USER", String.valueOf(users.get(i).id), "DAY", rand(20000, 80000), 0,
                     now.plusDays(1), now, "ALL", "ALL"));
         }
     }
@@ -382,24 +382,26 @@ public class EngineChainSqlGenerator {
         LocalDateTime startTime = LocalDateTime.of(start, LocalTime.MIN);
         LocalDateTime endTime = LocalDateTime.of(end.plusDays(14), LocalTime.of(23, 59, 59));
 
-        rules.add(new RiskRuleSeed(nextId(), "分钟频控拦截", "FREQUENCY", 100, 1,
-                "#count_1m >= 20", "REJECT", null, startTime, endTime, 1, "系统造数", "系统造数", now, now));
+        rules.add(new RiskRuleSeed(nextId(), "分钟频控硬拦截", "FREQUENCY", 100, 1,
+                "#count_1m >= 1200", "REJECT", null, startTime, endTime, 1, "系统造数", "系统造数", now, now));
         rules.add(new RiskRuleSeed(nextId(), "IP聚集拦截", "IP", 98, 1,
-                "#ip_count_1m >= 60", "REJECT", null, startTime, endTime, 1, "系统造数", "系统造数", now, now));
+                "#ip_count_1m >= 10000", "REJECT", null, startTime, endTime, 1, "系统造数", "系统造数", now, now));
         rules.add(new RiskRuleSeed(nextId(), "设备高频拦截", "DEVICE", 97, 1,
-                "#device_count_1m >= 30", "REJECT", null, startTime, endTime, 1, "系统造数", "系统造数", now, now));
+                "#device_count_1m >= 6000", "REJECT", null, startTime, endTime, 1, "系统造数", "系统造数", now, now));
         rules.add(new RiskRuleSeed(nextId(), "日累计额度冻结", "AMOUNT", 90, 1,
-                "#amount_1d >= 3000", "FREEZE", null, startTime, endTime, 1, "系统造数", "系统造数", now, now));
+                "#amount_1d >= 120000", "FREEZE", null, startTime, endTime, 1, "系统造数", "系统造数", now, now));
         rules.add(new RiskRuleSeed(nextId(), "小时异常复核", "FREQUENCY", 85, 1,
-                "#count_1h >= 120", "REVIEW", null, startTime, endTime, 1, "系统造数", "系统造数", now, now));
+                "#count_1h >= 10000", "REVIEW", null, startTime, endTime, 1, "系统造数", "系统造数", now, now));
         rules.add(new RiskRuleSeed(nextId(), "多设备切换复核", "DEVICE", 80, 1,
-                "#distinct_device_1d >= 4", "REVIEW", null, startTime, endTime, 1, "系统造数", "系统造数", now, now));
+                "#distinct_device_1d >= 25", "REVIEW", null, startTime, endTime, 1, "系统造数", "系统造数", now, now));
+        rules.add(new RiskRuleSeed(nextId(), "分钟突增复核", "FREQUENCY", 78, 1,
+                "#count_1m >= 800 and #count_1m < 1200", "REVIEW", null, startTime, endTime, 1, "系统造数", "系统造数", now, now));
         rules.add(new RiskRuleSeed(nextId(), "中风险降级", "DEGRADE", 70, 1,
-                "#count_1m >= 10 and #count_1m < 20 and #amount_1d < 3000", "DEGRADE_PASS", "{\"ratio\":0.5}",
+                "#count_1m >= 450 and #count_1m < 800 and #amount_1d < 120000", "DEGRADE_PASS", "{\"ratio\":0.7}",
                 startTime, endTime, 1, "系统造数", "系统造数", now, now));
         rules.add(new RiskRuleSeed(nextId(), "凌晨时段降级", "TIME", 65, 1,
-                "#eventTime != null and #eventTime.hour >= 1 and #eventTime.hour < 6 and #count_1m >= 8",
-                "DEGRADE_PASS", "{\"ratio\":0.3}", startTime, endTime, 1, "系统造数", "系统造数", now, now));
+                "#eventTime != null and #eventTime.hour >= 1 and #eventTime.hour < 6 and #count_1m >= 400",
+                "DEGRADE_PASS", "{\"ratio\":0.5}", startTime, endTime, 1, "系统造数", "系统造数", now, now));
     }
 
     private void buildRiskDecisionAndFreezeRecords() {

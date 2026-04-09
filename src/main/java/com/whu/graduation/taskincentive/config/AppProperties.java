@@ -11,6 +11,8 @@ public class AppProperties {
     private Dlq dlq = new Dlq();
     private Dedup dedup = new Dedup();
     private CacheWarmup cacheWarmup = new CacheWarmup();
+    private LogControl logControl = new LogControl();
+    private AsyncCompensation asyncCompensation = new AsyncCompensation();
 
     public Security getSecurity() {
         return security;
@@ -42,6 +44,22 @@ public class AppProperties {
 
     public void setCacheWarmup(CacheWarmup cacheWarmup) {
         this.cacheWarmup = cacheWarmup;
+    }
+
+    public LogControl getLogControl() {
+        return logControl;
+    }
+
+    public void setLogControl(LogControl logControl) {
+        this.logControl = logControl;
+    }
+
+    public AsyncCompensation getAsyncCompensation() {
+        return asyncCompensation;
+    }
+
+    public void setAsyncCompensation(AsyncCompensation asyncCompensation) {
+        this.asyncCompensation = asyncCompensation;
     }
 
     public static class Security {
@@ -95,7 +113,7 @@ public class AppProperties {
         private int hotUserLimit = 1000;
         private int instancesPerHotUser = 30;
         private int maxTotalHotUserInstances = 30000;
-        private long userTaskRedisTtlMinutes = 10L;
+        private long userTaskRedisTtlMinutes = 120L;
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -129,5 +147,35 @@ public class AppProperties {
 
         public long getUserTaskRedisTtlMinutes() { return userTaskRedisTtlMinutes; }
         public void setUserTaskRedisTtlMinutes(long userTaskRedisTtlMinutes) { this.userTaskRedisTtlMinutes = userTaskRedisTtlMinutes; }
+    }
+
+    public static class LogControl {
+        /**
+         * Controls noisy info/warn logs on the high-frequency main path.
+         */
+        private boolean mainPathEnabled = true;
+
+        public boolean isMainPathEnabled() {
+            return mainPathEnabled;
+        }
+
+        public void setMainPathEnabled(boolean mainPathEnabled) {
+            this.mainPathEnabled = mainPathEnabled;
+        }
+    }
+
+    public static class AsyncCompensation {
+        /**
+         * When true, failed async Kafka sends are published to DLQ for replay.
+         */
+        private boolean dlqOnKafkaFailure = true;
+
+        public boolean isDlqOnKafkaFailure() {
+            return dlqOnKafkaFailure;
+        }
+
+        public void setDlqOnKafkaFailure(boolean dlqOnKafkaFailure) {
+            this.dlqOnKafkaFailure = dlqOnKafkaFailure;
+        }
     }
 }

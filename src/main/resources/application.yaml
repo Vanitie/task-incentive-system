@@ -59,11 +59,15 @@ app:
     load-task-config: true
     load-hot-users: true
     task-config-batch-size: 500
-    task-config-redis-ttl-seconds: 60
+    task-config-redis-ttl-seconds: 3600
     hot-user-limit: 1000
     instances-per-hot-user: 30
     max-total-hot-user-instances: 30000
-    user-task-redis-ttl-minutes: 10
+    user-task-redis-ttl-minutes: 120
+  log-control:
+    main-path-enabled: ${APP_MAIN_PATH_LOG_ENABLED:true}
+  async-compensation:
+    dlq-on-kafka-failure: ${APP_DLQ_ON_KAFKA_FAILURE:true}
 
 # 通用管理端点配置（仅健康和信息）
 management:
@@ -86,8 +90,8 @@ logging:
     # Use APP_LOG_FILE to override at runtime, e.g. D:/logs/task-incentive-system.log
     name: ${APP_LOG_FILE:./logs/task-incentive-system.log}
   level:
-    root: INFO
-    com.whu.graduation.taskincentive: INFO
+    root: ${APP_ROOT_LOG_LEVEL:INFO}
+    com.whu.graduation.taskincentive: ${APP_LOG_LEVEL:INFO}
   pattern:
     file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
   logback:
