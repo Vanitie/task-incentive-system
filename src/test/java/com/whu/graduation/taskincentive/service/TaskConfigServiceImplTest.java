@@ -927,4 +927,44 @@ public class TaskConfigServiceImplTest {
             TransactionSynchronizationManager.clearSynchronization();
         }
     }
+
+    @Test
+    public void warmupAllTaskConfigs_shouldPopulateLocalAndRedisAndEventSets() throws Exception {
+        TaskConfig c1 = new TaskConfig();
+        c1.setId(11001L);
+        c1.setTaskName("t1");
+        c1.setTriggerEvent("USER_LEARN");
+        TaskConfig c2 = new TaskConfig();
+        c2.setId(11002L);
+        c2.setTaskName("t2");
+        c2.setTriggerEvent("USER_SIGN");
+        when(mapper.selectList(null)).thenReturn(List.of(c1, c2));
+
+        @SuppressWarnings("unchecked")
+        org.springframework.data.redis.core.SetOperations<String, String> setOps = mock(org.springframework.data.redis.core.SetOperations.class);
+        when(redisTemplate.opsForSet()).thenReturn(setOps);
+
+        int warmed = service.warmupAllTaskConfigs(1, 120);
+
+        assertEquals(2, warmed);
+        verify(valueOps, times(2)).set(startsWith(CacheKeys.TASK_CONFIG_PREFIX), anyString(), eq(120L), eq(TimeUnit.SECONDS));
+        verify(redisTemplate, atLeastOnce()).opsForSet();
+
+        java.lang.reflect.Field cacheField = TaskConfigServiceImpl.class.getDeclaredField("localTaskConfigCache");
+        cacheField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Cache<Long, TaskConfig> localCache = (Cache<Long, TaskConfig>) cacheField.get(service);
+        assertNotNull(localCache.getIfPresent(11001L));
+        assertNotNull(localCache.getIfPresent(11002L));
+    }
+
+    @Test
+    public void warmupAllTaskConfigs_shouldReturnZero_whenNoTaskConfigs() {
+        when(mapper.selectList(null)).thenReturn(Collections.emptyList());
+
+        int warmed = service.warmupAllTaskConfigs(100, 60);
+
+        assertEquals(0, warmed);
+        verify(valueOps, never()).set(startsWith(CacheKeys.TASK_CONFIG_PREFIX), anyString(), anyLong(), any());
+    }
 }

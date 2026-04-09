@@ -1,6 +1,23 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.whu.graduation.taskincentive.dao.mapper.UserTaskInstanceMapper">
+    <select id="selectAcceptedByUserIdsLimited" resultType="com.whu.graduation.taskincentive.dao.entity.UserTaskInstance">
+        SELECT *
+        FROM (
+            SELECT u.*,
+                   ROW_NUMBER() OVER (PARTITION BY u.user_id ORDER BY u.update_time DESC) AS rn
+            FROM user_task_instance u
+            WHERE u.status &gt; 0
+              AND u.user_id IN
+              <foreach collection="userIds" item="uid" open="(" separator="," close=")">
+                  #{uid}
+              </foreach>
+        ) t
+        WHERE t.rn &lt;= #{perUserLimit}
+        ORDER BY t.user_id ASC, t.update_time DESC
+        LIMIT #{totalLimit}
+    </select>
+
     <!-- 按日期分组统计过去7天每天接取任务的用户数（去重 user_id） -->
     <select id="countDistinctUserIdsGroupByDate" resultType="map">
         SELECT DATE(create_time) AS the_date, COUNT(DISTINCT user_id) AS cnt

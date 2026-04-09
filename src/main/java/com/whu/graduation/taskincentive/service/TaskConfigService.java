@@ -115,4 +115,13 @@ public interface TaskConfigService {
      * 多条件分页查询任务配置
      */
     Page<TaskConfig> searchByConditions(String taskName, String taskType, Integer status, String rewardType, Page<TaskConfig> page);
+
+    /**
+     * 启动预热：加载全部任务配置到本地缓存和 Redis。
+     *
+     * @param batchSize 每批处理数量（用于控制启动抖动）
+     * @param redisTtlSeconds Redis 任务配置缓存 TTL（秒）
+     * @return 成功预热的任务配置数量
+     */
+    int warmupAllTaskConfigs(int batchSize, long redisTtlSeconds);
 }

@@ -78,7 +78,39 @@ public interface UserTaskInstanceService {
     Page<UserTaskInstance> selectByUserIdPage(com.baomidou.mybatisplus.extension.plugins.pagination.Page<com.whu.graduation.taskincentive.dao.entity.UserTaskInstance> page, Long userId, Integer status);
 
     /**
+     * 启动预热：按热点用户将已接取任务实例加载进 Redis。
+     */
+    HotUserWarmupStats warmupHotUserTaskInstances(int maxHotUsers,
+                                                  int maxInstancesPerUser,
+                                                  int maxTotalInstances,
+                                                  long userTaskRedisTtlMinutes);
+
+    /**
      * 按用户ID、任务ID、状态组合条件分页查询任务实例列表
      */
     Page<UserTaskInstance> listByConditions(Page<UserTaskInstance> page, Long userId, Long taskId, Integer status);
+
+    class HotUserWarmupStats {
+        private final int userCount;
+        private final int instanceCount;
+        private final boolean truncated;
+
+        public HotUserWarmupStats(int userCount, int instanceCount, boolean truncated) {
+            this.userCount = userCount;
+            this.instanceCount = instanceCount;
+            this.truncated = truncated;
+        }
+
+        public int getUserCount() {
+            return userCount;
+        }
+
+        public int getInstanceCount() {
+            return instanceCount;
+        }
+
+        public boolean isTruncated() {
+            return truncated;
+        }
+    }
 }

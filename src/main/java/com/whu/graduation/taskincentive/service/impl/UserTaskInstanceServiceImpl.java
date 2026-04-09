@@ -26,6 +26,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * 用户任务进度服务实现
@@ -205,6 +206,104 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
     @Override
     public List<UserTaskInstance> selectByUserIdDirect(Long userId) {
         return userTaskInstanceMapper.selectByUserId(userId);
+    }
+
+    @Override
+    public HotUserWarmupStats warmupHotUserTaskInstances(int maxHotUsers,
+                                                         int maxInstancesPerUser,
+                                                         int maxTotalInstances,
+                                                         long userTaskRedisTtlMinutes) {
+        final int batchUserSize = 200;
+        int safeHotUsers = Math.max(1, maxHotUsers);
+        int safeInstancesPerUser = Math.max(1, maxInstancesPerUser);
+        int safeTotalInstances = Math.max(1, maxTotalInstances);
+        long safeTtlMinutes = userTaskRedisTtlMinutes > 0 ? userTaskRedisTtlMinutes : 10L;
+
+        List<Long> hotUserIds = userTaskInstanceMapper.selectHotUserIds(safeHotUsers);
+        if (hotUserIds == null || hotUserIds.isEmpty()) {
+            return new HotUserWarmupStats(0, 0, false);
+        }
+
+        int warmedUsers = 0;
+        int warmedInstances = 0;
+        boolean truncated = false;
+
+        for (int start = 0; start < hotUserIds.size(); start += batchUserSize) {
+            if (warmedInstances >= safeTotalInstances) {
+                truncated = true;
+                break;
+            }
+            int end = Math.min(hotUserIds.size(), start + batchUserSize);
+            List<Long> batchUserIds = hotUserIds.subList(start, end).stream()
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+            if (batchUserIds.isEmpty()) {
+                continue;
+            }
+
+            int remaining = safeTotalInstances - warmedInstances;
+            int batchTotalLimit = Math.min(remaining, batchUserIds.size() * safeInstancesPerUser);
+
+            List<UserTaskInstance> instances;
+            try {
+                instances = userTaskInstanceMapper.selectAcceptedByUserIdsLimited(batchUserIds, safeInstancesPerUser, batchTotalLimit);
+            } catch (Exception e) {
+                log.warn("batch warmup query failed, fallback to per-user query, err={}", e.getMessage());
+                instances = new ArrayList<>();
+                for (Long uid : batchUserIds) {
+                    try {
+                        List<UserTaskInstance> oneUserRows = userTaskInstanceMapper.selectAcceptedByUserIdLimited(uid, safeInstancesPerUser);
+                        if (oneUserRows != null && !oneUserRows.isEmpty()) {
+                            instances.addAll(oneUserRows);
+                        }
+                    } catch (Exception ex) {
+                        log.warn("fallback warmup query failed, userId={}, err={}", uid, ex.getMessage());
+                    }
+                }
+            }
+
+            if (instances == null || instances.isEmpty()) {
+                continue;
+            }
+
+            Map<Long, Set<String>> acceptedTaskIdsByUser = new HashMap<>();
+            Set<Long> warmedUserIdsInBatch = new HashSet<>();
+            for (UserTaskInstance instance : instances) {
+                if (warmedInstances >= safeTotalInstances) {
+                    truncated = true;
+                    break;
+                }
+                if (instance == null || instance.getUserId() == null || instance.getTaskId() == null) {
+                    continue;
+                }
+
+                Long userId = instance.getUserId();
+                String taskKey = buildUserTaskKey(userId, instance.getTaskId());
+                try {
+                    redisTemplate.opsForValue().set(taskKey, JSON.toJSONString(instance), safeTtlMinutes, java.util.concurrent.TimeUnit.MINUTES);
+                    acceptedTaskIdsByUser.computeIfAbsent(userId, k -> new HashSet<>()).add(String.valueOf(instance.getTaskId()));
+                    warmedUserIdsInBatch.add(userId);
+                    warmedInstances++;
+                } catch (Exception e) {
+                    log.warn("warmup write userTask cache failed, userId={}, taskId={}, err={}", userId, instance.getTaskId(), e.getMessage());
+                }
+            }
+
+            for (Map.Entry<Long, Set<String>> entry : acceptedTaskIdsByUser.entrySet()) {
+                if (entry.getValue().isEmpty()) {
+                    continue;
+                }
+                try {
+                    redisTemplate.opsForSet().add(buildUserAcceptedSetKey(entry.getKey()), entry.getValue().toArray(new String[0]));
+                } catch (Exception e) {
+                    log.warn("warmup write accepted task set failed, userId={}, err={}", entry.getKey(), e.getMessage());
+                }
+            }
+
+            warmedUsers += warmedUserIdsInBatch.size();
+        }
+
+        return new HotUserWarmupStats(warmedUsers, warmedInstances, truncated);
     }
 
     @Override

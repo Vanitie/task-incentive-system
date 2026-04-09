@@ -52,6 +52,18 @@ app:
   dlq:
     topic: dlq-topic
     custom-js: /swagger-ui-request-interceptor.js
+  cache-warmup:
+    enabled: true
+    fail-fast: false
+    load-risk: true
+    load-task-config: true
+    load-hot-users: true
+    task-config-batch-size: 500
+    task-config-redis-ttl-seconds: 60
+    hot-user-limit: 1000
+    instances-per-hot-user: 30
+    max-total-hot-user-instances: 30000
+    user-task-redis-ttl-minutes: 10
 
 # 通用管理端点配置（仅健康和信息）
 management:
@@ -68,5 +80,21 @@ management:
         http.server.requests: true
       percentiles:
         http.server.requests: 0.9,0.95,0.99
+
+logging:
+  file:
+    # Use APP_LOG_FILE to override at runtime, e.g. D:/logs/task-incentive-system.log
+    name: ${APP_LOG_FILE:./logs/task-incentive-system.log}
+  level:
+    root: INFO
+    com.whu.graduation.taskincentive: INFO
+  pattern:
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  logback:
+    rollingpolicy:
+      file-name-pattern: ${APP_LOG_FILE_PATTERN:./logs/task-incentive-system.%d{yyyy-MM-dd}.%i.log.gz}
+      max-file-size: 100MB
+      total-size-cap: 2GB
+      max-history: 14
 
 # 环境专属配置请放到 application-dev.yaml 和 application-prod.yaml

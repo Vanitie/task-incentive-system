@@ -9,10 +9,10 @@ import com.whu.graduation.taskincentive.dao.mapper.RiskBlacklistMapper;
 import com.whu.graduation.taskincentive.dao.mapper.RiskQuotaMapper;
 import com.whu.graduation.taskincentive.dao.mapper.RiskRuleMapper;
 import com.whu.graduation.taskincentive.dao.mapper.RiskWhitelistMapper;
-import com.whu.graduation.taskincentive.service.risk.RiskCacheStore;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
 import org.springframework.stereotype.Component;
 
-import jakarta.annotation.PostConstruct;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -41,8 +41,7 @@ public class RiskCacheLoader {
         this.cacheStore = cacheStore;
     }
 
-    @PostConstruct
-    public void load() {
+    public LoadStats load() {
         List<RiskRule> rules = riskRuleMapper.selectList(new QueryWrapper<RiskRule>().eq("status", 1));
         cacheStore.refreshRules(rules);
 
@@ -60,5 +59,20 @@ public class RiskCacheLoader {
 
         List<RiskQuota> quotas = riskQuotaMapper.selectList(null);
         cacheStore.refreshQuotas(RiskCacheStore.buildQuotaMap(quotas));
+
+        return new LoadStats(
+                rules == null ? 0 : rules.size(),
+                bl == null ? 0 : bl.size(),
+                wl == null ? 0 : wl.size(),
+                quotas == null ? 0 : quotas.size());
+    }
+
+    @Getter
+    @AllArgsConstructor
+    public static class LoadStats {
+        private final int activeRuleCount;
+        private final int blacklistCount;
+        private final int whitelistCount;
+        private final int quotaCount;
     }
 }

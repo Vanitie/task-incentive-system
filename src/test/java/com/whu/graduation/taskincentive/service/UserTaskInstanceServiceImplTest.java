@@ -1188,4 +1188,100 @@ public class UserTaskInstanceServiceImplTest {
         boolean out = assertDoesNotThrow(() -> service.update(inst));
         assertTrue(out);
     }
+
+    @Test
+    public void warmupHotUserTaskInstances_shouldWarmCachesWithinLimits() {
+        when(mapper.selectHotUserIds(2)).thenReturn(List.of(1001L, 1002L));
+
+        UserTaskInstance i1 = new UserTaskInstance();
+        i1.setUserId(1001L);
+        i1.setTaskId(501L);
+        i1.setStatus(1);
+        UserTaskInstance i2 = new UserTaskInstance();
+        i2.setUserId(1001L);
+        i2.setTaskId(502L);
+        i2.setStatus(1);
+        UserTaskInstance i3 = new UserTaskInstance();
+        i3.setUserId(1002L);
+        i3.setTaskId(601L);
+        i3.setStatus(1);
+
+        when(mapper.selectAcceptedByUserIdsLimited(anyList(), eq(2), eq(4))).thenReturn(List.of(i1, i2, i3));
+
+        @SuppressWarnings("unchecked")
+        SetOperations<String, String> setOps = mock(SetOperations.class);
+        when(redisTemplate.opsForSet()).thenReturn(setOps);
+
+        UserTaskInstanceService.HotUserWarmupStats stats =
+                service.warmupHotUserTaskInstances(2, 2, 10, 15);
+
+        assertEquals(2, stats.getUserCount());
+        assertEquals(3, stats.getInstanceCount());
+        assertFalse(stats.isTruncated());
+        verify(valueOps, times(3)).set(startsWith("userTask:"), anyString(), eq(15L), eq(java.util.concurrent.TimeUnit.MINUTES));
+        verify(redisTemplate, atLeastOnce()).opsForSet();
+    }
+
+    @Test
+    public void warmupHotUserTaskInstances_shouldTruncateWhenTotalLimitReached() {
+        when(mapper.selectHotUserIds(2)).thenReturn(List.of(2001L, 2002L));
+
+        UserTaskInstance i1 = new UserTaskInstance();
+        i1.setUserId(2001L);
+        i1.setTaskId(701L);
+        i1.setStatus(1);
+        UserTaskInstance i2 = new UserTaskInstance();
+        i2.setUserId(2001L);
+        i2.setTaskId(702L);
+        i2.setStatus(1);
+        UserTaskInstance i3 = new UserTaskInstance();
+        i3.setUserId(2002L);
+        i3.setTaskId(801L);
+        i3.setStatus(1);
+
+        when(mapper.selectAcceptedByUserIdsLimited(anyList(), eq(5), eq(2))).thenReturn(List.of(i1, i2, i3));
+
+        @SuppressWarnings("unchecked")
+        SetOperations<String, String> setOps = mock(SetOperations.class);
+        when(redisTemplate.opsForSet()).thenReturn(setOps);
+
+        UserTaskInstanceService.HotUserWarmupStats stats =
+                service.warmupHotUserTaskInstances(2, 5, 2, 10);
+
+        assertEquals(1, stats.getUserCount());
+        assertEquals(2, stats.getInstanceCount());
+        assertTrue(stats.isTruncated());
+        verify(valueOps, times(2)).set(startsWith("userTask:"), anyString(), eq(10L), eq(java.util.concurrent.TimeUnit.MINUTES));
+        verify(redisTemplate, atLeastOnce()).opsForSet();
+    }
+
+    @Test
+    public void warmupHotUserTaskInstances_shouldFallbackToPerUserQuery_whenBatchQueryFails() {
+        when(mapper.selectHotUserIds(2)).thenReturn(List.of(3001L, 3002L));
+        when(mapper.selectAcceptedByUserIdsLimited(anyList(), eq(2), eq(4))).thenThrow(new RuntimeException("sql not supported"));
+
+        UserTaskInstance i1 = new UserTaskInstance();
+        i1.setUserId(3001L);
+        i1.setTaskId(901L);
+        i1.setStatus(1);
+        UserTaskInstance i2 = new UserTaskInstance();
+        i2.setUserId(3002L);
+        i2.setTaskId(902L);
+        i2.setStatus(1);
+        when(mapper.selectAcceptedByUserIdLimited(3001L, 2)).thenReturn(List.of(i1));
+        when(mapper.selectAcceptedByUserIdLimited(3002L, 2)).thenReturn(List.of(i2));
+
+        @SuppressWarnings("unchecked")
+        SetOperations<String, String> setOps = mock(SetOperations.class);
+        when(redisTemplate.opsForSet()).thenReturn(setOps);
+
+        UserTaskInstanceService.HotUserWarmupStats stats =
+                service.warmupHotUserTaskInstances(2, 2, 10, 5);
+
+        assertEquals(2, stats.getUserCount());
+        assertEquals(2, stats.getInstanceCount());
+        assertFalse(stats.isTruncated());
+        verify(mapper, times(1)).selectAcceptedByUserIdLimited(3001L, 2);
+        verify(mapper, times(1)).selectAcceptedByUserIdLimited(3002L, 2);
+    }
 }

@@ -26,6 +26,25 @@ public interface UserTaskInstanceMapper extends BaseMapper<UserTaskInstance> {
     @Select("SELECT * FROM user_task_instance WHERE user_id = #{userId} AND status = #{status}")
     List<UserTaskInstance> selectByUserIdAndStatus(@Param("userId") Long userId, @Param("status") Integer status);
 
+    /**
+     * 按最近活跃时间选取热点用户（仅统计已接取任务）。
+     */
+    @Select("SELECT user_id FROM user_task_instance WHERE status > 0 GROUP BY user_id ORDER BY MAX(update_time) DESC LIMIT #{limit}")
+    List<Long> selectHotUserIds(@Param("limit") int limit);
+
+    /**
+     * 查询单个用户最近活跃的已接取任务实例，限制条数防止预热过量。
+     */
+    @Select("SELECT * FROM user_task_instance WHERE user_id = #{userId} AND status > 0 ORDER BY update_time DESC LIMIT #{limit}")
+    List<UserTaskInstance> selectAcceptedByUserIdLimited(@Param("userId") Long userId, @Param("limit") int limit);
+
+    /**
+     * 批量查询热点用户的已接取任务实例：每个用户最多返回 perUserLimit 条，并限制总返回行数。
+     */
+    List<UserTaskInstance> selectAcceptedByUserIdsLimited(@Param("userIds") List<Long> userIds,
+                                                          @Param("perUserLimit") int perUserLimit,
+                                                          @Param("totalLimit") int totalLimit);
+
     @Update("""
     UPDATE user_task_instance
     SET progress = #{progress},

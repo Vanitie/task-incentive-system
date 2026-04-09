@@ -46,7 +46,7 @@ class RiskCacheLoaderTest {
         RiskQuota quota = RiskQuota.builder().scopeType("USER").scopeId("u1").resourceType("ALL").resourceId("ALL").periodType("DAY").build();
         when(quotaMapper.selectList(null)).thenReturn(Collections.singletonList(quota));
 
-        loader.load();
+        RiskCacheLoader.LoadStats stats = loader.load();
 
         verify(cacheStore).refreshRules(Collections.singletonList(rule));
 
@@ -63,6 +63,10 @@ class RiskCacheLoaderTest {
         ArgumentCaptor<Map<String, RiskQuota>> quotaCaptor = ArgumentCaptor.forClass(Map.class);
         verify(cacheStore).refreshQuotas(quotaCaptor.capture());
         assertEquals(1, quotaCaptor.getValue().size());
+        assertEquals(1, stats.getActiveRuleCount());
+        assertEquals(1, stats.getBlacklistCount());
+        assertEquals(1, stats.getWhitelistCount());
+        assertEquals(1, stats.getQuotaCount());
     }
 }
 
