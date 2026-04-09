@@ -124,4 +124,11 @@ public interface TaskConfigService {
      * @return 成功预热的任务配置数量
      */
     int warmupAllTaskConfigs(int batchSize, long redisTtlSeconds);
+
+    /**
+     * 启动预热扩展：可指定是否写入 Redis（仅内存预热时可关闭）。
+     */
+    default int warmupAllTaskConfigs(int batchSize, long redisTtlSeconds, boolean writeRedis) {
+        return warmupAllTaskConfigs(batchSize, redisTtlSeconds);
+    }
 }

@@ -86,6 +86,16 @@ public interface UserTaskInstanceService {
                                                   long userTaskRedisTtlMinutes);
 
     /**
+     * 启动预热增强版：支持批大小和总耗时预算控制。
+     */
+    HotUserWarmupStats warmupHotUserTaskInstances(int maxHotUsers,
+                                                  int maxInstancesPerUser,
+                                                  int maxTotalInstances,
+                                                  long userTaskRedisTtlMinutes,
+                                                  int batchUserSize,
+                                                  long maxDurationMs);
+
+    /**
      * 按用户ID、任务ID、状态组合条件分页查询任务实例列表
      */
     Page<UserTaskInstance> listByConditions(Page<UserTaskInstance> page, Long userId, Long taskId, Integer status);

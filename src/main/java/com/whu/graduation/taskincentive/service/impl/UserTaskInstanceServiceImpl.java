@@ -229,10 +229,27 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
                                                          int maxInstancesPerUser,
                                                          int maxTotalInstances,
                                                          long userTaskRedisTtlMinutes) {
-        final int batchUserSize = 200;
+        return warmupHotUserTaskInstances(maxHotUsers,
+                maxInstancesPerUser,
+                maxTotalInstances,
+                userTaskRedisTtlMinutes,
+                200,
+                0L);
+    }
+
+    @Override
+    public HotUserWarmupStats warmupHotUserTaskInstances(int maxHotUsers,
+                                                         int maxInstancesPerUser,
+                                                         int maxTotalInstances,
+                                                         long userTaskRedisTtlMinutes,
+                                                         int batchUserSize,
+                                                         long maxDurationMs) {
+        final long startMs = System.currentTimeMillis();
+        final long deadlineMs = maxDurationMs > 0 ? startMs + maxDurationMs : Long.MAX_VALUE;
         int safeHotUsers = Math.max(1, maxHotUsers);
         int safeInstancesPerUser = Math.max(1, maxInstancesPerUser);
         int safeTotalInstances = Math.max(1, maxTotalInstances);
+        int safeBatchUserSize = Math.max(50, batchUserSize);
         long safeTtlMinutes = userTaskRedisTtlMinutes > 0 ? userTaskRedisTtlMinutes : resolveUserTaskTtlMinutes();
 
         List<Long> hotUserIds = userTaskInstanceMapper.selectHotUserIds(safeHotUsers);
@@ -244,12 +261,16 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
         int warmedInstances = 0;
         boolean truncated = false;
 
-        for (int start = 0; start < hotUserIds.size(); start += batchUserSize) {
+        for (int start = 0; start < hotUserIds.size(); start += safeBatchUserSize) {
+            if (System.currentTimeMillis() >= deadlineMs) {
+                truncated = true;
+                break;
+            }
             if (warmedInstances >= safeTotalInstances) {
                 truncated = true;
                 break;
             }
-            int end = Math.min(hotUserIds.size(), start + batchUserSize);
+            int end = Math.min(hotUserIds.size(), start + safeBatchUserSize);
             List<Long> batchUserIds = hotUserIds.subList(start, end).stream()
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
@@ -258,7 +279,8 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
             }
 
             int remaining = safeTotalInstances - warmedInstances;
-            int batchTotalLimit = Math.min(remaining, batchUserIds.size() * safeInstancesPerUser);
+            long expectedBatchLimit = (long) batchUserIds.size() * (long) safeInstancesPerUser;
+            int batchTotalLimit = (int) Math.min((long) remaining, expectedBatchLimit);
 
             List<UserTaskInstance> instances;
             try {
@@ -267,6 +289,10 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
                 log.warn("batch warmup query failed, fallback to per-user query, err={}", e.getMessage());
                 instances = new ArrayList<>();
                 for (Long uid : batchUserIds) {
+                    if (System.currentTimeMillis() >= deadlineMs || warmedInstances >= safeTotalInstances) {
+                        truncated = true;
+                        break;
+                    }
                     try {
                         List<UserTaskInstance> oneUserRows = userTaskInstanceMapper.selectAcceptedByUserIdLimited(uid, safeInstancesPerUser);
                         if (oneUserRows != null && !oneUserRows.isEmpty()) {
@@ -285,6 +311,10 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
             Map<Long, Set<String>> acceptedTaskIdsByUser = new HashMap<>();
             Set<Long> warmedUserIdsInBatch = new HashSet<>();
             for (UserTaskInstance instance : instances) {
+                if (System.currentTimeMillis() >= deadlineMs) {
+                    truncated = true;
+                    break;
+                }
                 if (warmedInstances >= safeTotalInstances) {
                     truncated = true;
                     break;

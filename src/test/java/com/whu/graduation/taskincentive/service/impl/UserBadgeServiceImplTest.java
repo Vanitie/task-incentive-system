@@ -35,7 +35,7 @@ class UserBadgeServiceImplTest {
 
     @Test
     void grantBadge_shouldReturnFalseWhenBadgeMissing() {
-        when(badgeMapper.selectById(1)).thenReturn(null);
+        when(badgeMapper.selectOne(any())).thenReturn(null);
 
         boolean ok = service.grantBadge(10L, 1);
 
@@ -45,7 +45,7 @@ class UserBadgeServiceImplTest {
 
     @Test
     void grantBadge_shouldReturnTrueWhenAlreadyOwned() {
-        when(badgeMapper.selectById(2)).thenReturn(Badge.builder().id(200L).build());
+        when(badgeMapper.selectOne(any())).thenReturn(Badge.builder().id(200L).build());
         when(userBadgeMapper.selectUserBadge(10L, 200L)).thenReturn(new UserBadge());
 
         boolean ok = service.grantBadge(10L, 2);
@@ -56,7 +56,7 @@ class UserBadgeServiceImplTest {
 
     @Test
     void grantBadge_shouldInsertWhenFirstGrant() {
-        when(badgeMapper.selectById(3)).thenReturn(Badge.builder().id(300L).build());
+        when(badgeMapper.selectOne(any())).thenReturn(Badge.builder().id(300L).build());
         when(userBadgeMapper.selectUserBadge(10L, 300L)).thenReturn(null);
         when(userBadgeMapper.insert(any(UserBadge.class))).thenReturn(1);
 

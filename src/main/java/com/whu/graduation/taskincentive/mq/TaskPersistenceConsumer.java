@@ -96,9 +96,8 @@ public class TaskPersistenceConsumer {
             return;
         }
 
-        // 关键字段缺失时直接进入 DLQ，避免刷出大量 id=null 的误导性 WARN
         if (instance == null || instance.getId() == null) {
-            log.error("invalid task persistence message, missing instance id, messageId={}, payload={}", messageId, payload);
+            log.warn("missing instance id, send to DLQ, messageId={}, payload={}", messageId, payload);
             try {
                 errorPublisher.publishToDlq("task-persist-topic", message, messageId, "missing instance id",
                         Map.of("source", "TaskPersistenceConsumer", "retryCount", 0));

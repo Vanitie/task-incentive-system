@@ -103,7 +103,18 @@ public class AppProperties {
     }
 
     public static class CacheWarmup {
+        public enum Mode {
+            OFF,
+            MEMORY_ONLY,
+            MEMORY_AND_REDIS_LIMITED,
+            FULL
+        }
+
         private boolean enabled = true;
+        /**
+         * Optional warmup mode override; when empty the runner falls back to legacy enabled/load-* flags.
+         */
+        private String mode;
         private boolean failFast = false;
         private boolean loadRisk = true;
         private boolean loadTaskConfig = true;
@@ -113,10 +124,22 @@ public class AppProperties {
         private int hotUserLimit = 1000;
         private int instancesPerHotUser = 30;
         private int maxTotalHotUserInstances = 30000;
+        private int hotUserBatchSize = 200;
+        /**
+         * FULL mode dedicated limits for broader Redis warmup.
+         */
+        private int fullHotUserLimit = 20000;
+        private int fullInstancesPerHotUser = 120;
+        private int fullMaxTotalHotUserInstances = 2000000;
+        private int fullHotUserBatchSize = 500;
         private long userTaskRedisTtlMinutes = 120L;
+        private long maxDurationSeconds = 90L;
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public String getMode() { return mode; }
+        public void setMode(String mode) { this.mode = mode; }
 
         public boolean isFailFast() { return failFast; }
         public void setFailFast(boolean failFast) { this.failFast = failFast; }
@@ -145,8 +168,26 @@ public class AppProperties {
         public int getMaxTotalHotUserInstances() { return maxTotalHotUserInstances; }
         public void setMaxTotalHotUserInstances(int maxTotalHotUserInstances) { this.maxTotalHotUserInstances = maxTotalHotUserInstances; }
 
+        public int getHotUserBatchSize() { return hotUserBatchSize; }
+        public void setHotUserBatchSize(int hotUserBatchSize) { this.hotUserBatchSize = hotUserBatchSize; }
+
+        public int getFullHotUserLimit() { return fullHotUserLimit; }
+        public void setFullHotUserLimit(int fullHotUserLimit) { this.fullHotUserLimit = fullHotUserLimit; }
+
+        public int getFullInstancesPerHotUser() { return fullInstancesPerHotUser; }
+        public void setFullInstancesPerHotUser(int fullInstancesPerHotUser) { this.fullInstancesPerHotUser = fullInstancesPerHotUser; }
+
+        public int getFullMaxTotalHotUserInstances() { return fullMaxTotalHotUserInstances; }
+        public void setFullMaxTotalHotUserInstances(int fullMaxTotalHotUserInstances) { this.fullMaxTotalHotUserInstances = fullMaxTotalHotUserInstances; }
+
+        public int getFullHotUserBatchSize() { return fullHotUserBatchSize; }
+        public void setFullHotUserBatchSize(int fullHotUserBatchSize) { this.fullHotUserBatchSize = fullHotUserBatchSize; }
+
         public long getUserTaskRedisTtlMinutes() { return userTaskRedisTtlMinutes; }
         public void setUserTaskRedisTtlMinutes(long userTaskRedisTtlMinutes) { this.userTaskRedisTtlMinutes = userTaskRedisTtlMinutes; }
+
+        public long getMaxDurationSeconds() { return maxDurationSeconds; }
+        public void setMaxDurationSeconds(long maxDurationSeconds) { this.maxDurationSeconds = maxDurationSeconds; }
     }
 
     public static class LogControl {

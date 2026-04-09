@@ -5,11 +5,13 @@ import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,31 +20,42 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Function;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * 以 TaskEngine 为入口链路设计的造数脚本：
  * - 生成用户、任务、库存、用户任务实例、风控规则/配额/黑白名单
- * - 用户与任务创建时间默认分布在最近 7 天
+ * - 用户与任务创建时间默认分布在最近 14 天
  */
 public class EngineChainSqlGenerator {
+
+    public enum DatasetProfile {
+        ORIGINAL,
+        QPS_4000,
+        QPS_6000,
+        /**
+         * Backward-compatible alias for ORIGINAL.
+         */
+        SMALL_TEST
+    }
 
     private static final DateTimeFormatter DT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final String DEFAULT_BCRYPT = "$2a$10$7EqJtq98hPqEX7fNZaFWoOQ3z6M4s5xj8gJHjQ2j1bVjAqLr7Qw4K";
     private static final String DEFAULT_K6_FILE = "engine_process_event_k6.js";
+    private static final String MANAGED_SQL_PREFIX = "engine_chain_demo_data";
     private static final Pattern K6_BEARER_TOKEN_LINE = Pattern.compile("const\\s+BEARER_TOKEN\\s*=\\s*__ENV\\.BEARER_TOKEN\\s*\\|\\|\\s*'[^']*';");
     private static final Pattern K6_USER_IDS_LINE = Pattern.compile("const\\s+USER_IDS\\s*=\\s*\\[[^]]*\\];");
 
-    private static final int DAYS = 7;
-    // 增大用户池，降低小样本导致的热点冲突与压测失真。
-    private static final int USER_MIN_PER_DAY = 800;
-    private static final int USER_MAX_PER_DAY = 1600;
-    private static final int TASK_MIN_PER_DAY = 4;
-    private static final int TASK_MAX_PER_DAY = 8;
+    private static final int PROFILE_WINDOW_DAYS = 14;
+    private static final int SQL_INSERT_BATCH_SIZE = 500;
 
     private static final Random R = new Random(20260322L);
 
     private long idSeq = 2000000000000000000L;
+
+    private ScaleProfile scale = ScaleProfile.forProfile(DatasetProfile.QPS_6000);
 
     private final List<UserSeed> users = new ArrayList<>();
     private final List<BadgeSeed> badges = new ArrayList<>();
@@ -51,6 +64,7 @@ public class EngineChainSqlGenerator {
     private final List<TaskSeed> tasks = new ArrayList<>();
     private final List<TaskStockSeed> stocks = new ArrayList<>();
     private final List<UserTaskInstanceSeed> instances = new ArrayList<>();
+    private final Set<String> instanceUniqueKeys = new java.util.HashSet<>();
     private final List<UserActionLogSeed> actionLogs = new ArrayList<>();
     private final List<UserRewardRecordSeed> rewardRecords = new ArrayList<>();
     private final Map<String, UserBadgeSeed> userBadgeUnique = new LinkedHashMap<>();
@@ -67,18 +81,26 @@ public class EngineChainSqlGenerator {
         String output = args.length > 0 ? args[0] : "engine_chain_demo_data.sql";
         String k6Output = args.length > 1 ? args[1] : DEFAULT_K6_FILE;
         String bearerToken = args.length > 2 ? args[2] : null;
-        new EngineChainSqlGenerator().generate(output, k6Output, bearerToken);
+        DatasetProfile profile = args.length > 3 ? parseProfile(args[3]) : DatasetProfile.ORIGINAL;
+        new EngineChainSqlGenerator().generate(output, k6Output, bearerToken, profile);
         System.out.println("SQL generated: " + output);
         System.out.println("k6 template generated: " + k6Output);
     }
 
     public void generate(String outputFile) throws IOException {
-        generate(outputFile, DEFAULT_K6_FILE, null);
+        generate(outputFile, DEFAULT_K6_FILE, null, DatasetProfile.ORIGINAL);
     }
 
     public void generate(String outputFile, String k6OutputFile, String bearerToken) throws IOException {
+        generate(outputFile, k6OutputFile, bearerToken, DatasetProfile.ORIGINAL);
+    }
+
+    public void generate(String outputFile, String k6OutputFile, String bearerToken, DatasetProfile profile) throws IOException {
+        resetGeneratedState();
+        this.scale = ScaleProfile.forProfile(profile == null ? DatasetProfile.ORIGINAL : profile);
+
         LocalDate end = LocalDate.now();
-        LocalDate start = end.minusDays(DAYS - 1L);
+        LocalDate start = end.minusDays(scale.registrationDays - 1L);
 
         buildUsers(start, end);
         buildBadges();
@@ -90,17 +112,169 @@ public class EngineChainSqlGenerator {
         buildRiskRules(start, end);
         buildRiskDecisionAndFreezeRecords();
 
+        cleanupManagedSqlArtifacts(outputFile);
         writeSql(outputFile);
         writeK6Template(k6OutputFile, bearerToken);
+    }
+
+    private void cleanupManagedSqlArtifacts(String outputFile) {
+        if (outputFile == null || outputFile.trim().isEmpty()) {
+            return;
+        }
+        Path outputPath = Path.of(outputFile).toAbsolutePath().normalize();
+        Path dir = outputPath.getParent();
+        if (dir == null || !Files.isDirectory(dir)) {
+            return;
+        }
+
+        List<Path> managed = new ArrayList<>();
+        try (Stream<Path> stream = Files.list(dir)) {
+            stream.filter(Files::isRegularFile)
+                    .filter(path -> isManagedSqlArtifact(path, outputPath))
+                    .forEach(managed::add);
+        } catch (IOException ignored) {
+            return;
+        }
+        if (managed.isEmpty()) {
+            return;
+        }
+
+        List<Path> testFiles = new ArrayList<>();
+        List<Path> actualFiles = new ArrayList<>();
+        for (Path path : managed) {
+            if (isTestSql(path)) {
+                testFiles.add(path);
+            } else {
+                actualFiles.add(path);
+            }
+        }
+        testFiles.sort((a, b) -> safeLastModifiedDesc(a, b));
+        actualFiles.sort((a, b) -> safeLastModifiedDesc(a, b));
+
+        Set<Path> keep = new java.util.HashSet<>();
+        keep.add(outputPath);
+
+        if (isTestSql(outputPath)) {
+            Path newestActual = firstExisting(actualFiles, outputPath);
+            if (newestActual != null) {
+                keep.add(newestActual);
+            }
+        } else {
+            Path newestTest = firstExisting(testFiles, outputPath);
+            if (newestTest != null) {
+                keep.add(newestTest);
+            }
+        }
+
+        for (Path path : managed) {
+            if (!keep.contains(path.toAbsolutePath().normalize())) {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException ignored) {
+                    // Best-effort cleanup only.
+                }
+            }
+        }
+    }
+
+    private static Path firstExisting(List<Path> candidates, Path outputPath) {
+        for (Path candidate : candidates) {
+            Path normalized = candidate.toAbsolutePath().normalize();
+            if (!normalized.equals(outputPath.toAbsolutePath().normalize())) {
+                return normalized;
+            }
+        }
+        return null;
+    }
+
+    private static int safeLastModifiedDesc(Path a, Path b) {
+        FileTime aTime = safeLastModified(a);
+        FileTime bTime = safeLastModified(b);
+        return bTime.compareTo(aTime);
+    }
+
+    private static FileTime safeLastModified(Path path) {
+        try {
+            return Files.getLastModifiedTime(path);
+        } catch (IOException ignored) {
+            return FileTime.fromMillis(0L);
+        }
+    }
+
+    private static boolean isManagedSqlArtifact(Path candidate, Path outputPath) {
+        String name = candidate.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (!name.endsWith(".sql")) {
+            return false;
+        }
+        Path normalized = candidate.toAbsolutePath().normalize();
+        if (normalized.equals(outputPath)) {
+            return true;
+        }
+        return name.startsWith(MANAGED_SQL_PREFIX) || name.startsWith("engine-chain");
+    }
+
+    private static boolean isTestSql(Path path) {
+        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+        return name.contains("test");
+    }
+
+    private void resetGeneratedState() {
+        idSeq = 2000000000000000000L;
+        users.clear();
+        badges.clear();
+        badgeIdByCode.clear();
+        tasks.clear();
+        stocks.clear();
+        instances.clear();
+        instanceUniqueKeys.clear();
+        actionLogs.clear();
+        rewardRecords.clear();
+        userBadgeUnique.clear();
+        userPointDelta.clear();
+        whitelists.clear();
+        blacklists.clear();
+        quotas.clear();
+        rules.clear();
+        decisionLogs.clear();
+        freezeRecords.clear();
+    }
+
+    private static DatasetProfile parseProfile(String rawProfile) {
+        if (rawProfile == null || rawProfile.trim().isEmpty()) {
+            return DatasetProfile.ORIGINAL;
+        }
+        String normalized = rawProfile.trim().toUpperCase(Locale.ROOT).replace('-', '_');
+        if ("1".equals(normalized) || "ORIGINAL".equals(normalized)) {
+            return DatasetProfile.ORIGINAL;
+        }
+        if ("2".equals(normalized) || "4000".equals(normalized) || "QPS4000".equals(normalized)) {
+            return DatasetProfile.QPS_4000;
+        }
+        if ("3".equals(normalized) || "6000".equals(normalized) || "QPS6000".equals(normalized)) {
+            return DatasetProfile.QPS_6000;
+        }
+        if ("SMALL".equals(normalized) || "SMALL_TEST".equals(normalized)) {
+            return DatasetProfile.ORIGINAL;
+        }
+        for (DatasetProfile profile : DatasetProfile.values()) {
+            if (profile.name().equals(normalized)) {
+                return profile;
+            }
+        }
+        return DatasetProfile.ORIGINAL;
     }
 
     private void buildUsers(LocalDate start, LocalDate end) {
         String[] family = {"王", "李", "张", "刘", "陈", "杨", "赵", "黄", "吴", "周", "徐", "孙", "马", "朱", "胡", "郭"};
         String[] given = {"子涵", "雨桐", "宇轩", "梓豪", "欣怡", "晨曦", "嘉宁", "思远", "若彤", "浩然", "婉清", "俊杰", "诗涵", "天宇", "依诺", "博文"};
 
+        int targetRegisteredUsers = scale.targetRegisteredUsers();
+        List<Integer> registrationsByDay = buildRegistrationsByDay(start, end, targetRegisteredUsers);
+
         LocalDate d = start;
+        int dayIndex = 0;
         while (!d.isAfter(end)) {
-            int n = rand(USER_MIN_PER_DAY, USER_MAX_PER_DAY);
+            int n = registrationsByDay.get(dayIndex++);
             for (int i = 0; i < n; i++) {
                 long id = nextId();
                 String username = family[R.nextInt(family.length)]
@@ -115,6 +289,67 @@ public class EngineChainSqlGenerator {
         LocalDateTime adminTime = LocalDateTime.of(end.minusDays(1), LocalTime.of(10, 0));
         users.add(new UserSeed(nextId(), "系统管理员", DEFAULT_BCRYPT, "ROLE_ADMIN", 9999, adminTime, adminTime));
         users.add(new UserSeed(nextId(), "风控测试员", DEFAULT_BCRYPT, "ROLE_USER", 1000, adminTime, adminTime));
+    }
+
+    private List<Integer> buildRegistrationsByDay(LocalDate start, LocalDate end, int registeredTarget) {
+        int days = (int) (end.toEpochDay() - start.toEpochDay()) + 1;
+        if (days <= 0) {
+            return List.of();
+        }
+
+        double[] retentionCurve = {1.00, 0.88, 0.80, 0.73, 0.67, 0.62, 0.58, 0.54, 0.50, 0.47, 0.44, 0.41, 0.38, 0.35};
+        double[] registerWeight = {1.08, 1.06, 1.05, 1.03, 1.02, 1.01, 1.00, 1.00, 0.99, 0.98, 0.97, 0.96, 0.95, 0.94};
+
+        double activeContribution = 0.0;
+        for (int age = 0; age < days; age++) {
+            double retention = age < retentionCurve.length ? retentionCurve[age] : 0.30;
+            double regWeight = age < registerWeight.length ? registerWeight[age] : 0.90;
+            activeContribution += retention * regWeight;
+        }
+
+        double scaleByDau = scale.targetDau / Math.max(1.0, activeContribution);
+        double scaleByRegistered = registeredTarget / Math.max(1.0, sumWeights(registerWeight, days));
+        double factor = Math.max(scaleByDau, scaleByRegistered);
+
+        List<Integer> byAge = new ArrayList<>();
+        int sum = 0;
+        for (int age = 0; age < days; age++) {
+            double regWeight = age < registerWeight.length ? registerWeight[age] : 0.90;
+            int n = Math.max(8, (int) Math.round(regWeight * factor));
+            byAge.add(n);
+            sum += n;
+        }
+
+        List<Integer> byDay = new ArrayList<>(Collections.nCopies(days, 0));
+        for (int i = 0; i < days; i++) {
+            byDay.set(i, byAge.get(days - 1 - i));
+        }
+
+        int delta = registeredTarget - sum;
+        int index = 0;
+        while (delta != 0 && !byDay.isEmpty()) {
+            int pos = index % byDay.size();
+            if (delta > 0) {
+                byDay.set(pos, byDay.get(pos) + 1);
+                delta--;
+            } else if (byDay.get(pos) > 8) {
+                byDay.set(pos, byDay.get(pos) - 1);
+                delta++;
+            }
+            index++;
+            if (index > byDay.size() * 5) {
+                break;
+            }
+        }
+        return byDay;
+    }
+
+    private static double sumWeights(double[] weights, int days) {
+        double sum = 0.0;
+        for (int i = 0; i < days; i++) {
+            sum += i < weights.length ? weights[i] : 0.90;
+        }
+        return sum;
     }
 
     private void buildBadges() {
@@ -171,7 +406,7 @@ public class EngineChainSqlGenerator {
         LocalDate d = start;
         int daySeq = 1;
         while (!d.isAfter(end)) {
-            int n = rand(TASK_MIN_PER_DAY, TASK_MAX_PER_DAY);
+            int n = rand(scale.taskMinPerDay, scale.taskMaxPerDay);
             for (int i = 0; i < n; i++) {
                 long id = nextId();
                 String taskType = taskTypes[R.nextInt(taskTypes.length)];
@@ -210,34 +445,89 @@ public class EngineChainSqlGenerator {
     }
 
     private void buildUserTaskInstances(LocalDate end) {
-        Map<String, UserTaskInstanceSeed> uniq = new LinkedHashMap<>();
-
+        instanceUniqueKeys.clear();
         for (UserSeed user : users) {
-            int receiveCount = rand(2, 6);
-            List<TaskSeed> visible = visibleTasksForUser(user);
-            if (visible.isEmpty()) {
+            if (!"ROLE_USER".equals(user.roles)) {
                 continue;
             }
 
-            for (int i = 0; i < receiveCount; i++) {
-                TaskSeed task = visible.get(R.nextInt(visible.size()));
-                String key = user.id + "_" + task.id;
-                if (uniq.containsKey(key)) {
-                    continue;
-                }
+            int receiveCount = rand(scale.instanceMinPerUser, scale.instanceMaxPerUser);
+            List<TaskSeed> visible = visibleTasksForUser(user);
+            if (visible.isEmpty() && tasks.isEmpty()) {
+                continue;
+            }
+
+            Map<Long, TaskSeed> uniqueTaskMap = new LinkedHashMap<>();
+            for (TaskSeed task : visible) {
+                uniqueTaskMap.put(task.id, task);
+            }
+            for (TaskSeed task : tasks) {
+                uniqueTaskMap.putIfAbsent(task.id, task);
+            }
+
+            List<TaskSeed> pool = new ArrayList<>(uniqueTaskMap.values());
+            Collections.shuffle(pool, R);
+
+            int choose = Math.min(receiveCount, pool.size());
+            for (int i = 0; i < choose; i++) {
+                TaskSeed task = pool.get(i);
 
                 int status = chooseInstanceStatus();
                 int progress = progressByStatus(task, status);
                 String extra = buildExtraData(task, progress, status);
-
-                LocalDateTime ct = between(user.createTime.toLocalDate(), end);
-                LocalDateTime ut = ct.plusMinutes(rand(1, 240));
-                uniq.put(key, new UserTaskInstanceSeed(nextId(), user.id, user.username, task.id, task.taskName,
-                        progress, status, 0, extra, ct, ut));
+                addUserTaskInstanceIfAbsent(user, task, status, progress, extra, end);
             }
         }
 
-        instances.addAll(uniq.values());
+        // 兜底，避免极端参数导致实例量明显不足。
+        int targetInstances = scale.targetInstanceCount(users.size());
+        int roleUserCount = 0;
+        for (UserSeed user : users) {
+            if ("ROLE_USER".equals(user.roles)) {
+                roleUserCount++;
+            }
+        }
+        long maxUniquePairs = (long) roleUserCount * (long) tasks.size();
+        int maxAttempts = (int) Math.min(Integer.MAX_VALUE, Math.max(1000L, maxUniquePairs * 2L));
+        int attempts = 0;
+
+        while (!tasks.isEmpty() && instances.size() < targetInstances && instances.size() < maxUniquePairs && attempts < maxAttempts) {
+            UserSeed user = users.get(R.nextInt(users.size()));
+            attempts++;
+            if (!"ROLE_USER".equals(user.roles)) {
+                continue;
+            }
+            TaskSeed task = tasks.get(R.nextInt(tasks.size()));
+            int status = chooseInstanceStatus();
+            int progress = progressByStatus(task, status);
+            String extra = buildExtraData(task, progress, status);
+            addUserTaskInstanceIfAbsent(user, task, status, progress, extra, end);
+        }
+
+        if (instances.size() < targetInstances && instances.size() >= maxUniquePairs) {
+            System.out.println("[INFO] user_task_instance reached unique pair upper bound, generated=" + instances.size()
+                    + ", maxUniquePairs=" + maxUniquePairs + ", target=" + targetInstances);
+        } else if (instances.size() < targetInstances && attempts >= maxAttempts) {
+            System.out.println("[WARN] user_task_instance fallback attempts reached cap, generated=" + instances.size()
+                    + ", target=" + targetInstances + ", attempts=" + attempts);
+        }
+    }
+
+    private boolean addUserTaskInstanceIfAbsent(UserSeed user,
+                                                TaskSeed task,
+                                                int status,
+                                                int progress,
+                                                String extra,
+                                                LocalDate end) {
+        String uniqueKey = user.id + "_" + task.id;
+        if (!instanceUniqueKeys.add(uniqueKey)) {
+            return false;
+        }
+        LocalDateTime ct = between(user.createTime.toLocalDate(), end);
+        LocalDateTime ut = ct.plusMinutes(rand(1, 240));
+        instances.add(new UserTaskInstanceSeed(nextId(), user.id, user.username, task.id, task.taskName,
+                progress, status, 0, extra, ct, ut));
+        return true;
     }
 
     private void buildActionAndRewardData() {
@@ -252,10 +542,14 @@ public class EngineChainSqlGenerator {
                 continue;
             }
 
-            // Generate action logs for accepted and above statuses.
             if (ins.status >= 1 && ins.progress > 0) {
-                actionLogs.add(new UserActionLogSeed(nextId(), ins.userId, task.triggerEvent,
-                        ins.progress, ins.createTime));
+                int actionCount = actionCountByStatus(ins.status);
+                int unitValue = Math.max(1, ins.progress / actionCount);
+                for (int i = 0; i < actionCount; i++) {
+                    LocalDateTime actionTime = ins.createTime.plusMinutes(rand(0, 180));
+                    actionLogs.add(new UserActionLogSeed(nextId(), ins.userId, task.triggerEvent,
+                            unitValue + (i == actionCount - 1 ? ins.progress % actionCount : 0), actionTime));
+                }
             }
 
             // Preload reward records for completed instances.
@@ -283,6 +577,19 @@ public class EngineChainSqlGenerator {
             user.pointBalance = Math.max(0, user.pointBalance + delta);
             user.updateTime = LocalDateTime.now().withNano(0);
         }
+    }
+
+    private int actionCountByStatus(int status) {
+        if (status == 3) {
+            return rand(3, 6);
+        }
+        if (status == 2) {
+            return rand(2, 4);
+        }
+        if (status == 4) {
+            return rand(1, 2);
+        }
+        return 1;
     }
 
     private void buildRiskLists() {
@@ -450,8 +757,17 @@ public class EngineChainSqlGenerator {
     private void writeSql(String outputFile) throws IOException {
         try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(Path.of(outputFile), StandardCharsets.UTF_8))) {
             out.println("-- engine-chain demo data generated at " + LocalDateTime.now().format(DT));
+            out.println("-- profile=" + scale.profileName + ", targetQps=" + scale.targetQps + ", targetDau=" + scale.targetDau + ", registerDays=" + scale.registrationDays);
+            out.println("-- generated rows: user=" + users.size()
+                    + ", task=" + tasks.size()
+                    + ", user_task_instance=" + instances.size()
+                    + ", user_action_log=" + actionLogs.size()
+                    + ", risk_decision_log=" + decisionLogs.size()
+                    + ", user_reward_record=" + rewardRecords.size());
             out.println("SET NAMES utf8mb4;");
             out.println("SET FOREIGN_KEY_CHECKS = 0;");
+            out.println("SET autocommit = 0;");
+            out.println("START TRANSACTION;");
             out.println();
 
             String[] resetTables = {
@@ -477,127 +793,112 @@ public class EngineChainSqlGenerator {
             }
             out.println("DELETE FROM `user`;");
             out.println();
+            writeBatchInserts(out,
+                    "`user` (`id`,`username`,`PASSWORD`,`roles`,`point_balance`,`create_time`,`update_time`)",
+                    users,
+                    u -> String.format(Locale.ROOT, "(%d,'%s','%s','%s',%d,'%s','%s')",
+                            u.id, esc(u.username), esc(u.password), esc(u.roles), u.pointBalance,
+                            u.createTime.format(DT), u.updateTime.format(DT)));
 
-            for (UserSeed u : users) {
-                out.printf(Locale.ROOT,
-                        "INSERT INTO `user` (`id`,`username`,`PASSWORD`,`roles`,`point_balance`,`create_time`,`update_time`) VALUES (%d,'%s','%s','%s',%d,'%s','%s');%n",
-                        u.id, esc(u.username), esc(u.password), esc(u.roles), u.pointBalance,
-                        u.createTime.format(DT), u.updateTime.format(DT));
-            }
-            out.println();
+            writeBatchInserts(out,
+                    "badge (`id`,`name`,`code`,`image_url`,`description`,`create_time`,`update_time`)",
+                    badges,
+                    b -> String.format(Locale.ROOT, "(%d,'%s',%d,'%s','%s','%s','%s')",
+                            b.id, esc(b.name), b.code, esc(b.imageUrl), esc(b.description),
+                            b.createTime.format(DT), b.updateTime.format(DT)));
 
-            for (BadgeSeed b : badges) {
-                out.printf(Locale.ROOT,
-                        "INSERT INTO badge (`id`,`name`,`code`,`image_url`,`description`,`create_time`,`update_time`) VALUES (%d,'%s',%d,'%s','%s','%s','%s');%n",
-                        b.id, esc(b.name), b.code, esc(b.imageUrl), esc(b.description),
-                        b.createTime.format(DT), b.updateTime.format(DT));
-            }
-            out.println();
+            writeBatchInserts(out,
+                    "task_config (`id`,`task_name`,`task_type`,`stock_type`,`trigger_event`,`rule_config`,`reward_type`,`reward_value`,`total_stock`,`status`,`start_time`,`end_time`,`create_time`,`update_time`)",
+                    tasks,
+                    t -> String.format(Locale.ROOT, "(%d,'%s','%s','%s','%s','%s','%s',%d,%s,%d,'%s','%s','%s','%s')",
+                            t.id, esc(t.taskName), t.taskType, t.stockType, t.triggerEvent, esc(t.ruleConfig),
+                            t.rewardType, t.rewardValue,
+                            t.totalStock == null ? "NULL" : String.valueOf(t.totalStock),
+                            t.status,
+                            t.startTime.format(DT), t.endTime.format(DT), t.createTime.format(DT), t.updateTime.format(DT)));
 
-            for (TaskSeed t : tasks) {
-                out.printf(Locale.ROOT,
-                        "INSERT INTO task_config (`id`,`task_name`,`task_type`,`stock_type`,`trigger_event`,`rule_config`,`reward_type`,`reward_value`,`total_stock`,`status`,`start_time`,`end_time`,`create_time`,`update_time`) " +
-                                "VALUES (%d,'%s','%s','%s','%s','%s','%s',%d,%s,%d,'%s','%s','%s','%s');%n",
-                        t.id, esc(t.taskName), t.taskType, t.stockType, t.triggerEvent, esc(t.ruleConfig),
-                        t.rewardType, t.rewardValue,
-                        t.totalStock == null ? "NULL" : String.valueOf(t.totalStock),
-                        t.status,
-                        t.startTime.format(DT), t.endTime.format(DT), t.createTime.format(DT), t.updateTime.format(DT));
-            }
-            out.println();
+            writeBatchInserts(out,
+                    "task_stock (`task_id`,`stage_index`,`available_stock`,`version`,`create_time`,`update_time`)",
+                    stocks,
+                    s -> String.format(Locale.ROOT, "(%d,%d,%d,%d,'%s','%s')",
+                            s.taskId, s.stageIndex, s.availableStock, s.version,
+                            s.createTime.format(DT), s.updateTime.format(DT)));
 
-            for (TaskStockSeed s : stocks) {
-                out.printf(Locale.ROOT,
-                        "INSERT INTO task_stock (`task_id`,`stage_index`,`available_stock`,`version`,`create_time`,`update_time`) VALUES (%d,%d,%d,%d,'%s','%s');%n",
-                        s.taskId, s.stageIndex, s.availableStock, s.version,
-                        s.createTime.format(DT), s.updateTime.format(DT));
-            }
-            out.println();
+            writeBatchInserts(out,
+                    "user_task_instance (`id`,`user_id`,`user_name`,`task_id`,`task_name`,`progress`,`status`,`version`,`extra_data`,`create_time`,`update_time`)",
+                    instances,
+                    s -> String.format(Locale.ROOT, "(%d,%d,'%s',%d,'%s',%d,%d,%d,%s,'%s','%s')",
+                            s.id, s.userId, esc(s.userName), s.taskId, esc(s.taskName), s.progress, s.status, s.version,
+                            s.extraData == null ? "NULL" : ("'" + esc(s.extraData) + "'"),
+                            s.createTime.format(DT), s.updateTime.format(DT)));
 
-            for (UserTaskInstanceSeed s : instances) {
-                out.printf(Locale.ROOT,
-                        "INSERT INTO user_task_instance (`id`,`user_id`,`user_name`,`task_id`,`task_name`,`progress`,`status`,`version`,`extra_data`,`create_time`,`update_time`) VALUES (%d,%d,'%s',%d,'%s',%d,%d,%d,%s,'%s','%s');%n",
-                        s.id, s.userId, esc(s.userName), s.taskId, esc(s.taskName), s.progress, s.status, s.version,
-                        s.extraData == null ? "NULL" : ("'" + esc(s.extraData) + "'"),
-                        s.createTime.format(DT), s.updateTime.format(DT));
-            }
-            out.println();
+            writeBatchInserts(out,
+                    "user_action_log (`id`,`user_id`,`action_type`,`action_value`,`create_time`)",
+                    actionLogs,
+                    l -> String.format(Locale.ROOT, "(%d,%d,'%s',%d,'%s')",
+                            l.id, l.userId, esc(l.actionType), l.actionValue, l.createTime.format(DT)));
 
-            for (UserActionLogSeed l : actionLogs) {
-                out.printf(Locale.ROOT,
-                        "INSERT INTO user_action_log (`id`,`user_id`,`action_type`,`action_value`,`create_time`) VALUES (%d,%d,'%s',%d,'%s');%n",
-                        l.id, l.userId, esc(l.actionType), l.actionValue, l.createTime.format(DT));
-            }
-            out.println();
+            writeBatchInserts(out,
+                    "user_reward_record (`id`,`user_id`,`task_id`,`reward_type`,`status`,`reward_value`,`create_time`)",
+                    rewardRecords,
+                    r -> String.format(Locale.ROOT, "(%d,%d,%d,'%s',%d,%d,'%s')",
+                            r.id, r.userId, r.taskId, esc(r.rewardType), r.status, r.rewardValue, r.createTime.format(DT)));
 
-            for (UserRewardRecordSeed r : rewardRecords) {
-                out.printf(Locale.ROOT,
-                        "INSERT INTO user_reward_record (`id`,`user_id`,`task_id`,`reward_type`,`status`,`reward_value`,`create_time`) VALUES (%d,%d,%d,'%s',%d,%d,'%s');%n",
-                        r.id, r.userId, r.taskId, esc(r.rewardType), r.status, r.rewardValue, r.createTime.format(DT));
-            }
-            out.println();
+            writeBatchInserts(out,
+                    "user_badge (`id`,`user_id`,`badge_id`,`acquire_time`)",
+                    new ArrayList<>(userBadgeUnique.values()),
+                    b -> String.format(Locale.ROOT, "(%d,%d,%d,'%s')",
+                            b.id, b.userId, b.badgeId, b.acquireTime.format(DT)));
 
-            for (UserBadgeSeed b : userBadgeUnique.values()) {
-                out.printf(Locale.ROOT,
-                        "INSERT INTO user_badge (`id`,`user_id`,`badge_id`,`acquire_time`) VALUES (%d,%d,%d,'%s');%n",
-                        b.id, b.userId, b.badgeId, b.acquireTime.format(DT));
-            }
-            out.println();
+            writeBatchInserts(out,
+                    "risk_whitelist (`id`,`target_type`,`target_value`,`source`,`expire_at`,`status`,`created_at`)",
+                    whitelists,
+                    s -> String.format(Locale.ROOT, "(%d,'%s','%s','%s',%s,%d,'%s')",
+                            s.id, s.targetType, esc(s.targetValue), esc(s.source),
+                            s.expireAt == null ? "NULL" : ("'" + s.expireAt.format(DT) + "'"),
+                            s.status, s.createdAt.format(DT)));
 
-            for (RiskListSeed s : whitelists) {
-                out.printf(Locale.ROOT,
-                        "INSERT INTO risk_whitelist (`id`,`target_type`,`target_value`,`source`,`expire_at`,`status`,`created_at`) VALUES (%d,'%s','%s','%s',%s,%d,'%s');%n",
-                        s.id, s.targetType, esc(s.targetValue), esc(s.source),
-                        s.expireAt == null ? "NULL" : ("'" + s.expireAt.format(DT) + "'"),
-                        s.status, s.createdAt.format(DT));
-            }
-            out.println();
+            writeBatchInserts(out,
+                    "risk_blacklist (`id`,`target_type`,`target_value`,`source`,`expire_at`,`status`,`created_at`)",
+                    blacklists,
+                    s -> String.format(Locale.ROOT, "(%d,'%s','%s','%s',%s,%d,'%s')",
+                            s.id, s.targetType, esc(s.targetValue), esc(s.source),
+                            s.expireAt == null ? "NULL" : ("'" + s.expireAt.format(DT) + "'"),
+                            s.status, s.createdAt.format(DT)));
 
-            for (RiskListSeed s : blacklists) {
-                out.printf(Locale.ROOT,
-                        "INSERT INTO risk_blacklist (`id`,`target_type`,`target_value`,`source`,`expire_at`,`status`,`created_at`) VALUES (%d,'%s','%s','%s',%s,%d,'%s');%n",
-                        s.id, s.targetType, esc(s.targetValue), esc(s.source),
-                        s.expireAt == null ? "NULL" : ("'" + s.expireAt.format(DT) + "'"),
-                        s.status, s.createdAt.format(DT));
-            }
-            out.println();
+            writeBatchInserts(out,
+                    "risk_quota (`id`,`quota_name`,`scope_type`,`scope_id`,`period_type`,`limit_value`,`used_value`,`reset_at`,`created_at`,`resource_type`,`resource_id`)",
+                    quotas,
+                    q -> String.format(Locale.ROOT, "(%d,'%s','%s','%s','%s',%d,%d,'%s','%s','%s','%s')",
+                            q.id, esc(q.quotaName), q.scopeType, esc(q.scopeId), q.periodType, q.limitValue, q.usedValue,
+                            q.resetAt.format(DT), q.createdAt.format(DT), q.resourceType, esc(q.resourceId)));
 
-            for (RiskQuotaSeed q : quotas) {
-                out.printf(Locale.ROOT,
-                        "INSERT INTO risk_quota (`id`,`quota_name`,`scope_type`,`scope_id`,`period_type`,`limit_value`,`used_value`,`reset_at`,`created_at`,`resource_type`,`resource_id`) VALUES (%d,'%s','%s','%s','%s',%d,%d,'%s','%s','%s','%s');%n",
-                        q.id, esc(q.quotaName), q.scopeType, esc(q.scopeId), q.periodType, q.limitValue, q.usedValue,
-                        q.resetAt.format(DT), q.createdAt.format(DT), q.resourceType, esc(q.resourceId));
-            }
-            out.println();
+            writeBatchInserts(out,
+                    "risk_rule (`id`,`name`,`type`,`priority`,`status`,`condition_expr`,`action`,`action_params`,`start_time`,`end_time`,`version`,`created_by`,`updated_by`,`created_at`,`updated_at`)",
+                    rules,
+                    r -> String.format(Locale.ROOT, "(%d,'%s','%s',%d,%d,'%s','%s',%s,'%s','%s',%d,'%s','%s','%s','%s')",
+                            r.id, esc(r.name), r.type, r.priority, r.status, esc(r.conditionExpr), r.action,
+                            r.actionParams == null ? "NULL" : ("'" + esc(r.actionParams) + "'"),
+                            r.startTime.format(DT), r.endTime.format(DT), r.version,
+                            esc(r.createdBy), esc(r.updatedBy), r.createdAt.format(DT), r.updatedAt.format(DT)));
 
-            for (RiskRuleSeed r : rules) {
-                out.printf(Locale.ROOT,
-                        "INSERT INTO risk_rule (`id`,`name`,`type`,`priority`,`status`,`condition_expr`,`action`,`action_params`,`start_time`,`end_time`,`version`,`created_by`,`updated_by`,`created_at`,`updated_at`) VALUES (%d,'%s','%s',%d,%d,'%s','%s',%s,'%s','%s',%d,'%s','%s','%s','%s');%n",
-                        r.id, esc(r.name), r.type, r.priority, r.status, esc(r.conditionExpr), r.action,
-                        r.actionParams == null ? "NULL" : ("'" + esc(r.actionParams) + "'"),
-                        r.startTime.format(DT), r.endTime.format(DT), r.version,
-                        esc(r.createdBy), esc(r.updatedBy), r.createdAt.format(DT), r.updatedAt.format(DT));
-            }
-            out.println();
+            writeBatchInserts(out,
+                    "risk_decision_log (`id`,`request_id`,`event_id`,`user_id`,`task_id`,`decision`,`reason_code`,`hit_rules`,`risk_score`,`latency_ms`,`created_at`)",
+                    decisionLogs,
+                    l -> String.format(Locale.ROOT, "(%d,'%s','%s',%d,%d,'%s','%s',%s,%d,%d,'%s')",
+                            l.id, esc(l.requestId), esc(l.eventId), l.userId, l.taskId, l.decision, l.reasonCode,
+                            l.hitRules == null ? "NULL" : ("'" + esc(l.hitRules) + "'"),
+                            l.riskScore, l.latencyMs, l.createdAt.format(DT)));
 
-            for (RiskDecisionLogSeed l : decisionLogs) {
-                out.printf(Locale.ROOT,
-                        "INSERT INTO risk_decision_log (`id`,`request_id`,`event_id`,`user_id`,`task_id`,`decision`,`reason_code`,`hit_rules`,`risk_score`,`latency_ms`,`created_at`) VALUES (%d,'%s','%s',%d,%d,'%s','%s',%s,%d,%d,'%s');%n",
-                        l.id, esc(l.requestId), esc(l.eventId), l.userId, l.taskId, l.decision, l.reasonCode,
-                        l.hitRules == null ? "NULL" : ("'" + esc(l.hitRules) + "'"),
-                        l.riskScore, l.latencyMs, l.createdAt.format(DT));
-            }
-            out.println();
-
-            for (RewardFreezeRecordSeed f : freezeRecords) {
-                out.printf(Locale.ROOT,
-                        "INSERT INTO reward_freeze_record (`id`,`reward_id`,`user_id`,`task_id`,`freeze_reason`,`status`,`unfreeze_at`,`created_at`,`updated_at`) VALUES (%d,%s,%d,%d,'%s',%d,%s,'%s','%s');%n",
-                        f.id,
-                        f.rewardId == null ? "NULL" : String.valueOf(f.rewardId),
-                        f.userId, f.taskId, esc(f.freezeReason), f.status,
-                        f.unfreezeAt == null ? "NULL" : ("'" + f.unfreezeAt.format(DT) + "'"),
-                        f.createdAt.format(DT), f.updatedAt.format(DT));
-            }
+            writeBatchInserts(out,
+                    "reward_freeze_record (`id`,`reward_id`,`user_id`,`task_id`,`freeze_reason`,`status`,`unfreeze_at`,`created_at`,`updated_at`)",
+                    freezeRecords,
+                    f -> String.format(Locale.ROOT, "(%d,%s,%d,%d,'%s',%d,%s,'%s','%s')",
+                            f.id,
+                            f.rewardId == null ? "NULL" : String.valueOf(f.rewardId),
+                            f.userId, f.taskId, esc(f.freezeReason), f.status,
+                            f.unfreezeAt == null ? "NULL" : ("'" + f.unfreezeAt.format(DT) + "'"),
+                            f.createdAt.format(DT), f.updatedAt.format(DT)));
 
             out.println();
             for (UserSeed u : users) {
@@ -607,8 +908,31 @@ public class EngineChainSqlGenerator {
             }
 
             out.println();
+            out.println("COMMIT;");
+            out.println("SET autocommit = 1;");
             out.println("SET FOREIGN_KEY_CHECKS = 1;");
         }
+    }
+
+    private <T> void writeBatchInserts(PrintWriter out,
+                                       String tableAndColumns,
+                                       List<T> rows,
+                                       Function<T, String> valueBuilder) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < rows.size(); i += SQL_INSERT_BATCH_SIZE) {
+            int end = Math.min(rows.size(), i + SQL_INSERT_BATCH_SIZE);
+            out.print("INSERT INTO " + tableAndColumns + " VALUES ");
+            for (int j = i; j < end; j++) {
+                if (j > i) {
+                    out.print(",");
+                }
+                out.print(valueBuilder.apply(rows.get(j)));
+            }
+            out.println(";");
+        }
+        out.println();
     }
 
     private void writeK6Template(String outputFile, String bearerToken) throws IOException {
@@ -733,8 +1057,8 @@ public class EngineChainSqlGenerator {
 
     private int chooseInstanceStatus() {
         double p = R.nextDouble();
-        if (p < 0.65) return 1; // ACCEPTED
-        if (p < 0.90) return 2; // IN_PROGRESS
+        if (p < 0.55) return 1; // ACCEPTED
+        if (p < 0.85) return 2; // IN_PROGRESS
         if (p < 0.97) return 3; // COMPLETED
         return 4;               // CANCELLED
     }
@@ -1233,6 +1557,57 @@ public class EngineChainSqlGenerator {
             this.reasonCode = reasonCode;
             this.minScore = minScore;
             this.maxScore = maxScore;
+        }
+    }
+
+    static class ScaleProfile {
+        String profileName;
+        int targetQps;
+        int targetDau;
+        int registrationDays;
+        int taskMinPerDay;
+        int taskMaxPerDay;
+        int instanceMinPerUser;
+        int instanceMaxPerUser;
+
+        ScaleProfile(String profileName, int targetQps, int targetDau, int registrationDays,
+                     int taskMinPerDay, int taskMaxPerDay, int instanceMinPerUser, int instanceMaxPerUser) {
+            this.profileName = profileName;
+            this.targetQps = targetQps;
+            this.targetDau = targetDau;
+            this.registrationDays = registrationDays;
+            this.taskMinPerDay = taskMinPerDay;
+            this.taskMaxPerDay = taskMaxPerDay;
+            this.instanceMinPerUser = instanceMinPerUser;
+            this.instanceMaxPerUser = instanceMaxPerUser;
+        }
+
+        static ScaleProfile forProfile(DatasetProfile profile) {
+            if (profile == DatasetProfile.QPS_6000) {
+                return new ScaleProfile("QPS_6000", 6000, estimateLabDau(6000), PROFILE_WINDOW_DAYS, 11, 14, 12, 24);
+            }
+            if (profile == DatasetProfile.QPS_4000) {
+                return new ScaleProfile("QPS_4000", 4000, estimateLabDau(4000), PROFILE_WINDOW_DAYS, 9, 12, 10, 20);
+            }
+            return new ScaleProfile("ORIGINAL", 2000, estimateLabDau(2000), PROFILE_WINDOW_DAYS, 6, 9, 6, 14);
+        }
+
+        int targetRegisteredUsers() {
+            return (int) Math.ceil(targetDau / 0.72);
+        }
+
+        int targetInstanceCount(int userSize) {
+            int roleUserEstimate = Math.max(100, userSize - 1);
+            return roleUserEstimate * ((instanceMinPerUser + instanceMaxPerUser) / 2);
+        }
+
+        private static int estimateLabDau(int targetQps) {
+            double peakToAvgRatio = 6.0;
+            double avgEventsPerDau = 120.0;
+            double reqPerDayAvg = (targetQps * 86400.0) / peakToAvgRatio;
+            // NOTE: removed the historical "single machine scale-down" factor.
+            // The returned DAU now corresponds directly to the configured targetQps.
+            return Math.max(200, (int) Math.round(reqPerDayAvg / avgEventsPerDau));
         }
     }
 }

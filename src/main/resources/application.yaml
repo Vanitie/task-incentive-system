@@ -63,6 +63,9 @@ app:
     topic: dlq-topic
     custom-js: /swagger-ui-request-interceptor.js
   cache-warmup:
+    # 四档模式：off / memory_only / memory_and_redis_limited / full
+    # 可通过 --app.cache-warmup.mode=... 或 --cache-warmup-mode=... 覆盖。
+    mode: memory_and_redis_limited
     enabled: true
     fail-fast: false
     load-risk: true
@@ -70,9 +73,16 @@ app:
     load-hot-users: true
     task-config-batch-size: 500
     task-config-redis-ttl-seconds: 3600
+    # limited 模式使用以下上限
     hot-user-limit: 1000
     instances-per-hot-user: 30
     max-total-hot-user-instances: 30000
+    hot-user-batch-size: 200
+    # full 模式使用以下上限
+    full-hot-user-limit: 20000
+    full-instances-per-hot-user: 120
+    full-max-total-hot-user-instances: 2000000
+    full-hot-user-batch-size: 500
     user-task-redis-ttl-minutes: 120
   log-control:
     main-path-enabled: ${APP_MAIN_PATH_LOG_ENABLED:true}

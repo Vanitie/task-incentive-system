@@ -426,6 +426,11 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
 
     @Override
     public int warmupAllTaskConfigs(int batchSize, long redisTtlSeconds) {
+        return warmupAllTaskConfigs(batchSize, redisTtlSeconds, true);
+    }
+
+    @Override
+    public int warmupAllTaskConfigs(int batchSize, long redisTtlSeconds, boolean writeRedis) {
         int safeBatchSize = Math.max(1, batchSize);
         long safeRedisTtl = redisTtlSeconds > 0 ? redisTtlSeconds : 60L;
 
@@ -444,13 +449,15 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
             String cacheKey = CacheKeys.TASK_CONFIG_PREFIX + taskId;
 
             localTaskConfigCache.put(taskId, cfg);
-            try {
-                redisTemplate.opsForValue().set(cacheKey, JSON.toJSONString(cfg), safeRedisTtl, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                log.warn("warmup write taskConfig to redis failed, key={}, err={}", cacheKey, e.getMessage());
+            if (writeRedis) {
+                try {
+                    redisTemplate.opsForValue().set(cacheKey, JSON.toJSONString(cfg), safeRedisTtl, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    log.warn("warmup write taskConfig to redis failed, key={}, err={}", cacheKey, e.getMessage());
+                }
             }
 
-            if (cfg.getTriggerEvent() != null && !cfg.getTriggerEvent().trim().isEmpty()) {
+            if (writeRedis && cfg.getTriggerEvent() != null && !cfg.getTriggerEvent().trim().isEmpty()) {
                 eventTaskIdMap.computeIfAbsent(cfg.getTriggerEvent(), k -> new HashSet<>()).add(String.valueOf(taskId));
             }
 
@@ -460,15 +467,17 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
             }
         }
 
-        for (Map.Entry<String, Set<String>> e : eventTaskIdMap.entrySet()) {
-            if (e.getValue().isEmpty()) {
-                continue;
-            }
-            String key = CacheKeys.EVENT_TASKS_PREFIX + e.getKey();
-            try {
-                redisTemplate.opsForSet().add(key, e.getValue().toArray(new String[0]));
-            } catch (Exception ex) {
-                log.warn("warmup write event->task set failed, key={}, err={}", key, ex.getMessage());
+        if (writeRedis) {
+            for (Map.Entry<String, Set<String>> e : eventTaskIdMap.entrySet()) {
+                if (e.getValue().isEmpty()) {
+                    continue;
+                }
+                String key = CacheKeys.EVENT_TASKS_PREFIX + e.getKey();
+                try {
+                    redisTemplate.opsForSet().add(key, e.getValue().toArray(new String[0]));
+                } catch (Exception ex) {
+                    log.warn("warmup write event->task set failed, key={}, err={}", key, ex.getMessage());
+                }
             }
         }
 

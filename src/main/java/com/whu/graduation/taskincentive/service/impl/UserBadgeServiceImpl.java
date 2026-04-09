@@ -1,6 +1,7 @@
 package com.whu.graduation.taskincentive.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
@@ -74,8 +75,15 @@ public class UserBadgeServiceImpl extends ServiceImpl<UserBadgeMapper, UserBadge
     @Transactional
     public boolean grantBadge(Long userId, Integer badgeCode) {
 
+        if (badgeCode == null) {
+            log.error("徽章编码为空 userId={}", userId);
+            return false;
+        }
+
         // 1 查询徽章
-        Badge badge = badgeMapper.selectById(badgeCode);
+        Badge badge = badgeMapper.selectOne(new LambdaQueryWrapper<Badge>()
+                .eq(Badge::getCode, badgeCode)
+                .last("limit 1"));
 
         if (badge == null) {
             log.error("徽章不存在 code={}", badgeCode);

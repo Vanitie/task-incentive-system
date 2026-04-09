@@ -3,11 +3,15 @@ package com.whu.graduation.taskincentive.util;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.stream.Stream;
 
 /**
  * 演示数据 SQL 生成器（按业务链路生成）
@@ -25,6 +29,7 @@ public class DemoSqlDataGenerator {
     private static final DateTimeFormatter DT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter D = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final String DEFAULT_BCRYPT = "$2a$10$7EqJtq98hPqEX7fNZaFWoOQ3z6M4s5xj8gJHjQ2j1bVjAqLr7Qw4K";
+    private static final String MANAGED_SQL_PREFIX = "demo_data";
     private static final Random R = new Random(20260317L); // 固定种子，保证可复现
 
     // 可调参数
@@ -76,7 +81,108 @@ public class DemoSqlDataGenerator {
         buildUserTaskInstancesAndRewardsAndLogs(start, end);
         buildUserPointBalance();
 
+        cleanupManagedSqlArtifacts(outputFile);
         writeSql(outputFile);
+    }
+
+    private void cleanupManagedSqlArtifacts(String outputFile) {
+        if (outputFile == null || outputFile.trim().isEmpty()) {
+            return;
+        }
+        Path outputPath = Path.of(outputFile).toAbsolutePath().normalize();
+        Path dir = outputPath.getParent();
+        if (dir == null || !Files.isDirectory(dir)) {
+            return;
+        }
+
+        List<Path> managed = new ArrayList<>();
+        try (Stream<Path> stream = Files.list(dir)) {
+            stream.filter(Files::isRegularFile)
+                    .filter(path -> isManagedSqlArtifact(path, outputPath))
+                    .forEach(managed::add);
+        } catch (IOException ignored) {
+            return;
+        }
+        if (managed.isEmpty()) {
+            return;
+        }
+
+        List<Path> testFiles = new ArrayList<>();
+        List<Path> actualFiles = new ArrayList<>();
+        for (Path path : managed) {
+            if (isTestSql(path)) {
+                testFiles.add(path);
+            } else {
+                actualFiles.add(path);
+            }
+        }
+        testFiles.sort((a, b) -> safeLastModifiedDesc(a, b));
+        actualFiles.sort((a, b) -> safeLastModifiedDesc(a, b));
+
+        Set<Path> keep = new HashSet<>();
+        keep.add(outputPath);
+        if (isTestSql(outputPath)) {
+            Path newestActual = firstExisting(actualFiles, outputPath);
+            if (newestActual != null) {
+                keep.add(newestActual);
+            }
+        } else {
+            Path newestTest = firstExisting(testFiles, outputPath);
+            if (newestTest != null) {
+                keep.add(newestTest);
+            }
+        }
+
+        for (Path path : managed) {
+            if (!keep.contains(path.toAbsolutePath().normalize())) {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException ignored) {
+                    // Best-effort cleanup.
+                }
+            }
+        }
+    }
+
+    private static Path firstExisting(List<Path> candidates, Path outputPath) {
+        for (Path candidate : candidates) {
+            Path normalized = candidate.toAbsolutePath().normalize();
+            if (!normalized.equals(outputPath.toAbsolutePath().normalize())) {
+                return normalized;
+            }
+        }
+        return null;
+    }
+
+    private static int safeLastModifiedDesc(Path a, Path b) {
+        FileTime aTime = safeLastModified(a);
+        FileTime bTime = safeLastModified(b);
+        return bTime.compareTo(aTime);
+    }
+
+    private static FileTime safeLastModified(Path path) {
+        try {
+            return Files.getLastModifiedTime(path);
+        } catch (IOException ignored) {
+            return FileTime.fromMillis(0L);
+        }
+    }
+
+    private static boolean isManagedSqlArtifact(Path candidate, Path outputPath) {
+        String name = candidate.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (!name.endsWith(".sql")) {
+            return false;
+        }
+        Path normalized = candidate.toAbsolutePath().normalize();
+        if (normalized.equals(outputPath)) {
+            return true;
+        }
+        return name.startsWith(MANAGED_SQL_PREFIX) || name.startsWith("demo-data");
+    }
+
+    private static boolean isTestSql(Path path) {
+        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+        return name.contains("test");
     }
 
     // 1) user
