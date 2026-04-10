@@ -79,10 +79,10 @@ app:
     max-total-hot-user-instances: 30000
     hot-user-batch-size: 200
     # full 模式使用以下上限
-    full-hot-user-limit: 20000
+    full-hot-user-limit: 1000000
     full-instances-per-hot-user: 120
-    full-max-total-hot-user-instances: 2000000
-    full-hot-user-batch-size: 500
+    full-max-total-hot-user-instances: 5000000
+    full-hot-user-batch-size: 5000
     user-task-redis-ttl-minutes: 120
   log-control:
     main-path-enabled: ${APP_MAIN_PATH_LOG_ENABLED:true}

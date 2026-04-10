@@ -2,6 +2,7 @@ package com.whu.graduation.taskincentive.util;
 
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -42,11 +43,13 @@ public class EngineChainSqlGenerator {
     }
 
     private static final DateTimeFormatter DT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final Charset UTF8 = StandardCharsets.UTF_8;
     private static final String DEFAULT_BCRYPT = "$2a$10$7EqJtq98hPqEX7fNZaFWoOQ3z6M4s5xj8gJHjQ2j1bVjAqLr7Qw4K";
     private static final String DEFAULT_K6_FILE = "engine_process_event_k6.js";
     private static final String MANAGED_SQL_PREFIX = "engine_chain_demo_data";
     private static final Pattern K6_BEARER_TOKEN_LINE = Pattern.compile("const\\s+BEARER_TOKEN\\s*=\\s*__ENV\\.BEARER_TOKEN\\s*\\|\\|\\s*'[^']*';");
-    private static final Pattern K6_USER_IDS_LINE = Pattern.compile("const\\s+USER_IDS\\s*=\\s*\\[[^]]*\\];");
+    private static final Pattern K6_USER_ID_START_LINE = Pattern.compile("const\\s+USER_ID_START\\s*=\\s*__ENV\\.USER_ID_START\\s*\\|\\|\\s*'[^']*';");
+    private static final Pattern K6_USER_ID_END_LINE = Pattern.compile("const\\s+USER_ID_END\\s*=\\s*__ENV\\.USER_ID_END\\s*\\|\\|\\s*'[^']*';");
 
     private static final int PROFILE_WINDOW_DAYS = 14;
     private static final int SQL_INSERT_BATCH_SIZE = 500;
@@ -755,7 +758,7 @@ public class EngineChainSqlGenerator {
     }
 
     private void writeSql(String outputFile) throws IOException {
-        try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(Path.of(outputFile), StandardCharsets.UTF_8))) {
+        try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(Path.of(outputFile), UTF8))) {
             out.println("-- engine-chain demo data generated at " + LocalDateTime.now().format(DT));
             out.println("-- profile=" + scale.profileName + ", targetQps=" + scale.targetQps + ", targetDau=" + scale.targetDau + ", registerDays=" + scale.registrationDays);
             out.println("-- generated rows: user=" + users.size()
@@ -936,14 +939,20 @@ public class EngineChainSqlGenerator {
     }
 
     private void writeK6Template(String outputFile, String bearerToken) throws IOException {
-        List<Long> userIds = new ArrayList<>();
+        Long userIdStart = null;
+        Long userIdEnd = null;
         for (UserSeed u : users) {
             if ("ROLE_USER".equals(u.roles)) {
-                userIds.add(u.id);
+                if (userIdStart == null || u.id < userIdStart) {
+                    userIdStart = u.id;
+                }
+                if (userIdEnd == null || u.id > userIdEnd) {
+                    userIdEnd = u.id;
+                }
             }
         }
-        if (userIds.isEmpty()) {
-            throw new IllegalStateException("no ROLE_USER users generated for k6 template");
+        if (userIdStart == null || userIdEnd == null) {
+            throw new IllegalStateException("no ROLE_USER users generated for k6 template bounds");
         }
 
         String fallbackToken = bearerToken == null || bearerToken.trim().isEmpty()
@@ -951,8 +960,8 @@ public class EngineChainSqlGenerator {
                 : bearerToken.trim();
 
         String scriptTemplate = loadK6TemplateScript();
-        String script = injectK6TemplateValues(scriptTemplate, fallbackToken, userIds);
-        try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(Path.of(outputFile), StandardCharsets.UTF_8))) {
+        String script = injectK6TemplateValues(scriptTemplate, fallbackToken, userIdStart, userIdEnd);
+        try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(Path.of(outputFile), UTF8))) {
             out.print(script);
         }
     }
@@ -962,28 +971,20 @@ public class EngineChainSqlGenerator {
         if (!Files.exists(path)) {
             throw new IOException("k6 template source not found: " + path.toAbsolutePath());
         }
-        return Files.readString(path, StandardCharsets.UTF_8);
+        return Files.readString(path, UTF8);
     }
 
-    private String injectK6TemplateValues(String scriptTemplate, String fallbackToken, List<Long> userIds) {
+    private String injectK6TemplateValues(String scriptTemplate, String fallbackToken, long userIdStart, long userIdEnd) {
         String withTokenPlaceholder = K6_BEARER_TOKEN_LINE.matcher(scriptTemplate)
                 .replaceFirst("const BEARER_TOKEN = __ENV.BEARER_TOKEN || '__FALLBACK_TOKEN__';");
-        String withUserPlaceholder = K6_USER_IDS_LINE.matcher(withTokenPlaceholder)
-                .replaceFirst("const USER_IDS = [__USER_IDS__];");
-        return withUserPlaceholder
+        String withUserStartPlaceholder = K6_USER_ID_START_LINE.matcher(withTokenPlaceholder)
+                .replaceFirst("const USER_ID_START = __ENV.USER_ID_START || '__USER_ID_START__';");
+        String withUserEndPlaceholder = K6_USER_ID_END_LINE.matcher(withUserStartPlaceholder)
+                .replaceFirst("const USER_ID_END = __ENV.USER_ID_END || '__USER_ID_END__';");
+        return withUserEndPlaceholder
                 .replace("__FALLBACK_TOKEN__", escJs(fallbackToken))
-                .replace("__USER_IDS__", joinLongList(userIds));
-    }
-
-    private static String joinLongList(List<Long> list) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < list.size(); i++) {
-            if (i > 0) {
-                sb.append(',');
-            }
-            sb.append(list.get(i));
-        }
-        return sb.toString();
+                .replace("__USER_ID_START__", String.valueOf(userIdStart))
+                .replace("__USER_ID_END__", String.valueOf(userIdEnd));
     }
 
     private static String escJs(String s) {
