@@ -306,6 +306,14 @@ function pickUserId(vu, iter) {
   return (USER_ID_MIN + offset).toString();
 }
 
+function buildRandomRequestId(vu, iter) {
+  // Keep a readable prefix for log tracing while adding enough entropy per request.
+  const now = Date.now().toString(36);
+  const r1 = Math.floor(Math.random() * 0x100000000).toString(36);
+  const r2 = Math.floor(Math.random() * 0x100000000).toString(36);
+  return `req-${RUN_ID}-${vu}-${iter}-${now}-${r1}${r2}`;
+}
+
 export default function () {
   const userId = pickUserId(__VU, __ITER);
   const endpointType = endpointTypeForScenario();
@@ -319,7 +327,7 @@ export default function () {
   const useDuplicate = Math.random() < DUPLICATE_RATE;
   const dropMessageId = Math.random() < NO_MSG_ID_RATE;
   const uniqueId = `mid-${Date.now()}-${__VU}-${__ITER}-${Math.floor(Math.random() * 100000)}`;
-  const requestId = `req-${RUN_ID}-${exec.vu.idInTest}-${exec.scenario.iterationInTest}`;
+  const requestId = buildRandomRequestId(__VU, __ITER);
   const messageId = useDuplicate ? pick(DUP_POOL) : uniqueId;
 
   const payload = {
