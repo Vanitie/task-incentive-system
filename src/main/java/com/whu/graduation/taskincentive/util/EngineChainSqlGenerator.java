@@ -58,7 +58,7 @@ public class EngineChainSqlGenerator {
 
     private long idSeq = 2000000000000000000L;
 
-    private ScaleProfile scale = ScaleProfile.forProfile(DatasetProfile.QPS_6000);
+    private ScaleProfile scale = ScaleProfile.forProfile(DatasetProfile.ORIGINAL);
 
     private final List<UserSeed> users = new ArrayList<>();
     private final List<BadgeSeed> badges = new ArrayList<>();
@@ -1590,7 +1590,8 @@ public class EngineChainSqlGenerator {
             if (profile == DatasetProfile.QPS_4000) {
                 return new ScaleProfile("QPS_4000", 4000, estimateLabDau(4000), PROFILE_WINDOW_DAYS, 9, 12, 10, 20);
             }
-            return new ScaleProfile("ORIGINAL", 2000, estimateLabDau(2000), PROFILE_WINDOW_DAYS, 6, 9, 6, 14);
+            // ORIGINAL keeps QPS-driven modeling, with target inferred from legacy user-pool scale.
+            return new ScaleProfile("ORIGINAL", 52, estimateLabDau(52), PROFILE_WINDOW_DAYS, 6, 9, 6, 14);
         }
 
         int targetRegisteredUsers() {

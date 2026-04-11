@@ -1,4 +1,3 @@
-package com.whu.graduation.taskincentive.service;
 
 import com.whu.graduation.taskincentive.common.error.BusinessException;
 import com.whu.graduation.taskincentive.common.enums.UserTaskStatus;
@@ -7,6 +6,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
 import com.whu.graduation.taskincentive.dao.mapper.UserTaskInstanceMapper;
+import com.whu.graduation.taskincentive.service.TaskConfigService;
+import com.whu.graduation.taskincentive.service.UserTaskInstanceService;
 import com.whu.graduation.taskincentive.service.impl.UserTaskInstanceServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -1220,6 +1221,7 @@ public class UserTaskInstanceServiceImplTest {
         assertFalse(stats.isTruncated());
         verify(valueOps, times(3)).set(startsWith("userTask:"), anyString(), eq(15L), eq(java.util.concurrent.TimeUnit.MINUTES));
         verify(redisTemplate, atLeastOnce()).opsForSet();
+        verify(redisTemplate, atLeastOnce()).expire(startsWith("user:accepted:"), eq(15L), eq(java.util.concurrent.TimeUnit.MINUTES));
     }
 
     @Test
@@ -1253,6 +1255,7 @@ public class UserTaskInstanceServiceImplTest {
         assertTrue(stats.isTruncated());
         verify(valueOps, times(2)).set(startsWith("userTask:"), anyString(), eq(10L), eq(java.util.concurrent.TimeUnit.MINUTES));
         verify(redisTemplate, atLeastOnce()).opsForSet();
+        verify(redisTemplate, atLeastOnce()).expire(startsWith("user:accepted:"), eq(10L), eq(java.util.concurrent.TimeUnit.MINUTES));
     }
 
     @Test

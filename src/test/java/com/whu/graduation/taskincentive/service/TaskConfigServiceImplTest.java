@@ -949,6 +949,7 @@ public class TaskConfigServiceImplTest {
         assertEquals(2, warmed);
         verify(valueOps, times(2)).set(startsWith(CacheKeys.TASK_CONFIG_PREFIX), anyString(), eq(120L), eq(TimeUnit.SECONDS));
         verify(redisTemplate, atLeastOnce()).opsForSet();
+        verify(redisTemplate, atLeastOnce()).expire(startsWith(CacheKeys.EVENT_TASKS_PREFIX), eq(120L), eq(TimeUnit.SECONDS));
 
         java.lang.reflect.Field cacheField = TaskConfigServiceImpl.class.getDeclaredField("localTaskConfigCache");
         cacheField.setAccessible(true);

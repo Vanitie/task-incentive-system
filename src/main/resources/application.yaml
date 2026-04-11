@@ -54,10 +54,10 @@ app:
       password: admin123
   executors:
     task-engine-event:
-      core-pool-size: ${APP_TASK_ENGINE_EXECUTOR_CORE:64}
-      max-pool-size: ${APP_TASK_ENGINE_EXECUTOR_MAX:256}
-      queue-capacity: ${APP_TASK_ENGINE_EXECUTOR_QUEUE:8000}
-      keep-alive-seconds: 60
+      core-pool-size: ${APP_TASK_ENGINE_EXECUTOR_CORE:128}
+      max-pool-size: ${APP_TASK_ENGINE_EXECUTOR_MAX:512}
+      queue-capacity: ${APP_TASK_ENGINE_EXECUTOR_QUEUE:20000}
+      keep-alive-seconds: 120
       thread-name-prefix: task-engine-event-
   dlq:
     topic: dlq-topic
@@ -72,7 +72,7 @@ app:
     load-task-config: true
     load-hot-users: true
     task-config-batch-size: 500
-    task-config-redis-ttl-seconds: 3600
+    task-config-redis-ttl-seconds: 10800
     # limited 模式使用以下上限
     hot-user-limit: 1000
     instances-per-hot-user: 30
@@ -83,7 +83,8 @@ app:
     full-instances-per-hot-user: 120
     full-max-total-hot-user-instances: 5000000
     full-hot-user-batch-size: 5000
-    user-task-redis-ttl-minutes: 120
+    full-max-duration-seconds: 1800
+    user-task-redis-ttl-minutes: 180
   log-control:
     main-path-enabled: ${APP_MAIN_PATH_LOG_ENABLED:true}
   async-compensation:

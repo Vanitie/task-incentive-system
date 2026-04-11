@@ -475,6 +475,7 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
                 String key = CacheKeys.EVENT_TASKS_PREFIX + e.getKey();
                 try {
                     redisTemplate.opsForSet().add(key, e.getValue().toArray(new String[0]));
+                    redisTemplate.expire(key, safeRedisTtl, TimeUnit.SECONDS);
                 } catch (Exception ex) {
                     log.warn("warmup write event->task set failed, key={}, err={}", key, ex.getMessage());
                 }

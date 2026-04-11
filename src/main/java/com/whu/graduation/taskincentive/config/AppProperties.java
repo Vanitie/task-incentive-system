@@ -120,7 +120,7 @@ public class AppProperties {
         private boolean loadTaskConfig = true;
         private boolean loadHotUsers = true;
         private int taskConfigBatchSize = 500;
-        private long taskConfigRedisTtlSeconds = 60L;
+        private long taskConfigRedisTtlSeconds = 10800L;
         private int hotUserLimit = 1000;
         private int instancesPerHotUser = 30;
         private int maxTotalHotUserInstances = 30000;
@@ -132,7 +132,8 @@ public class AppProperties {
         private int fullInstancesPerHotUser = 120;
         private int fullMaxTotalHotUserInstances = 2000000;
         private int fullHotUserBatchSize = 500;
-        private long userTaskRedisTtlMinutes = 120L;
+        private long fullMaxDurationSeconds = 1800L;
+        private long userTaskRedisTtlMinutes = 180L;
         private long maxDurationSeconds = 90L;
 
         public boolean isEnabled() { return enabled; }
@@ -182,6 +183,9 @@ public class AppProperties {
 
         public int getFullHotUserBatchSize() { return fullHotUserBatchSize; }
         public void setFullHotUserBatchSize(int fullHotUserBatchSize) { this.fullHotUserBatchSize = fullHotUserBatchSize; }
+
+        public long getFullMaxDurationSeconds() { return fullMaxDurationSeconds; }
+        public void setFullMaxDurationSeconds(long fullMaxDurationSeconds) { this.fullMaxDurationSeconds = fullMaxDurationSeconds; }
 
         public long getUserTaskRedisTtlMinutes() { return userTaskRedisTtlMinutes; }
         public void setUserTaskRedisTtlMinutes(long userTaskRedisTtlMinutes) { this.userTaskRedisTtlMinutes = userTaskRedisTtlMinutes; }

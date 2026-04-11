@@ -82,9 +82,10 @@ public class CacheWarmupRunner implements ApplicationRunner {
         }
 
         long startMs = System.currentTimeMillis();
-        long maxDurationMs = cfg.getMaxDurationSeconds() > 0 ? cfg.getMaxDurationSeconds() * 1000L : Long.MAX_VALUE;
+        long modeDurationSeconds = resolveModeDurationSeconds(cfg, mode);
+        long maxDurationMs = modeDurationSeconds > 0 ? modeDurationSeconds * 1000L : Long.MAX_VALUE;
         long deadlineMs = maxDurationMs == Long.MAX_VALUE ? Long.MAX_VALUE : startMs + maxDurationMs;
-        log.info("cache warmup start, mode={}, failFast={}, maxDurationSeconds={}", mode, cfg.isFailFast(), cfg.getMaxDurationSeconds());
+        log.info("cache warmup start, mode={}, failFast={}, maxDurationSeconds={}", mode, cfg.isFailFast(), modeDurationSeconds);
 
         if (hasRemainingBudget(deadlineMs)) {
             warmupRisk(cfg.isFailFast());
@@ -111,6 +112,13 @@ public class CacheWarmupRunner implements ApplicationRunner {
         }
 
         log.info("cache warmup finished, mode={}, elapsedMs={}", mode, System.currentTimeMillis() - startMs);
+    }
+
+    private long resolveModeDurationSeconds(AppProperties.CacheWarmup cfg, AppProperties.CacheWarmup.Mode mode) {
+        if (mode == AppProperties.CacheWarmup.Mode.FULL) {
+            return cfg.getFullMaxDurationSeconds() > 0 ? cfg.getFullMaxDurationSeconds() : cfg.getMaxDurationSeconds();
+        }
+        return cfg.getMaxDurationSeconds();
     }
 
     private void warmupRisk(boolean failFast) {

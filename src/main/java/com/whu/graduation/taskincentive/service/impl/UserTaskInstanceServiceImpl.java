@@ -52,13 +52,13 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
     @Autowired
     private UserMapper userMapper;
 
-    @Value("${app.cache-warmup.user-task-redis-ttl-minutes:120}")
+    @Value("${app.cache-warmup.user-task-redis-ttl-minutes:180}")
     private long userTaskRedisTtlMinutes = -1L;
 
     private static final String TASK_TOPIC = "task-persist-topic";
 
     private long resolveUserTaskTtlMinutes() {
-        return userTaskRedisTtlMinutes > 0 ? userTaskRedisTtlMinutes : 120L;
+        return userTaskRedisTtlMinutes > 0 ? userTaskRedisTtlMinutes : 180L;
     }
 
     private void setUserTaskCache(String key, String payload) {
@@ -340,7 +340,9 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
                     continue;
                 }
                 try {
-                    redisTemplate.opsForSet().add(buildUserAcceptedSetKey(entry.getKey()), entry.getValue().toArray(new String[0]));
+                    String acceptedSetKey = buildUserAcceptedSetKey(entry.getKey());
+                    redisTemplate.opsForSet().add(acceptedSetKey, entry.getValue().toArray(new String[0]));
+                    redisTemplate.expire(acceptedSetKey, safeTtlMinutes, java.util.concurrent.TimeUnit.MINUTES);
                 } catch (Exception e) {
                     log.warn("warmup write accepted task set failed, userId={}, err={}", entry.getKey(), e.getMessage());
                 }
