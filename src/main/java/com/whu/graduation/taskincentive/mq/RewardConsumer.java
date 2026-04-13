@@ -46,7 +46,7 @@ public class RewardConsumer {
     @Autowired
     private ErrorPublisher errorPublisher;
 
-    private long dedupTtlDays = CacheKeys.DEFAULT_DEDUP_TTL_DAYS;
+    private long dedupTtlHours = CacheKeys.DEFAULT_DEDUP_TTL_HOURS;
 
     @PostConstruct
     public void init() {
@@ -137,7 +137,7 @@ public class RewardConsumer {
                     log.warn("reward markSuccess skipped due to unexpected state, messageId={}", messageId);
                 }
                 try {
-                    redisTemplate.opsForValue().setIfAbsent(dedupKey, "1", dedupTtlDays, TimeUnit.DAYS);
+                    redisTemplate.opsForValue().setIfAbsent(dedupKey, "1", dedupTtlHours, TimeUnit.HOURS);
                 } catch (Exception ignore) {
                     log.warn("failed to set redis dedup key for reward messageId={}, err={}", messageId, ignore.getMessage());
                 }

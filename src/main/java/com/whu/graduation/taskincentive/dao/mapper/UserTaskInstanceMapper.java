@@ -128,4 +128,24 @@ public interface UserTaskInstanceMapper extends BaseMapper<UserTaskInstance> {
      * 按日期分组统计过去7天每天接取任务的用户数（去重 user_id）
      */
     List<Map<String, Object>> countDistinctUserIdsGroupByDate(@Param("start") Date start, @Param("end") Date end);
+
+    /**
+     * TopN：接取任务最多的用户
+     */
+    @Select("SELECT user_id AS userId, COUNT(1) AS cnt FROM user_task_instance GROUP BY user_id ORDER BY cnt DESC LIMIT #{limit}")
+    List<Map<String, Object>> selectTopAcceptedUsers(@Param("limit") int limit);
+
+    /**
+     * TopN：按任务类型统计接取次数
+     */
+    @Select("SELECT COALESCE(tc.task_type, 'UNKNOWN') AS taskType, COUNT(1) AS cnt " +
+            "FROM user_task_instance uti LEFT JOIN task_config tc ON tc.id = uti.task_id " +
+            "GROUP BY COALESCE(tc.task_type, 'UNKNOWN') ORDER BY cnt DESC LIMIT #{limit}")
+    List<Map<String, Object>> selectTopAcceptedTaskTypes(@Param("limit") int limit);
+
+    /**
+     * 用户最近活跃时间（任务维度）
+     */
+    @Select("SELECT MAX(update_time) FROM user_task_instance WHERE user_id = #{userId}")
+    Date selectLastActiveTimeByUserId(@Param("userId") Long userId);
 }

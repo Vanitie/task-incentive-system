@@ -65,7 +65,7 @@ public class TaskPersistenceConsumer {
         }
 
         String dedupKey = null;
-        long dedupTtlDays = CacheKeys.DEFAULT_DEDUP_TTL_DAYS;
+        long dedupTtlHours = CacheKeys.DEFAULT_DEDUP_TTL_HOURS;
         // 在处理前检查去重标记是否已存在
         if (messageId != null) {
             dedupKey = CacheKeys.DEDUP_MSG_PREFIX + messageId;
@@ -122,9 +122,9 @@ public class TaskPersistenceConsumer {
             // 处理成功后，若存在 messageId 则持久化去重标记
             if (messageId != null) {
                 try {
-                    Boolean set = redisTemplate.opsForValue().setIfAbsent(dedupKey, "1", dedupTtlDays, TimeUnit.DAYS);
+                    Boolean set = redisTemplate.opsForValue().setIfAbsent(dedupKey, "1", dedupTtlHours, TimeUnit.HOURS);
                     if (Boolean.TRUE.equals(set)) {
-                        log.debug("set dedup key for messageId={} with ttl {} days", messageId, dedupTtlDays);
+                        log.debug("set dedup key for messageId={} with ttl {} hours", messageId, dedupTtlHours);
                     }
                 } catch (Exception e) {
                     // 若设置失败，记录日志但不影响业务继续（后续可能导致重复处理）

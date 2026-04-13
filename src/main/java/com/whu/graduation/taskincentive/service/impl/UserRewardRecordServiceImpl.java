@@ -4,13 +4,18 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.whu.graduation.taskincentive.dao.entity.Badge;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.entity.User;
+import com.whu.graduation.taskincentive.dao.entity.UserBadge;
 import com.whu.graduation.taskincentive.dao.entity.UserRewardRecord;
+import com.whu.graduation.taskincentive.dao.mapper.BadgeMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserMapper;
+import com.whu.graduation.taskincentive.dao.mapper.UserBadgeMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserRewardRecordMapper;
 import com.whu.graduation.taskincentive.dto.Reward;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
+import com.whu.graduation.taskincentive.service.UserBadgeService;
 import com.whu.graduation.taskincentive.service.UserRewardRecordService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
@@ -29,6 +34,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
@@ -44,9 +50,16 @@ public class UserRewardRecordServiceImpl extends ServiceImpl<UserRewardRecordMap
     private static final int GRANT_SUCCESS = 2;
     private static final int GRANT_FAILED = 3;
 
+    private static final Set<String> POINT_REWARD_TYPES = Set.of("POINT", "REWARD_POINT", "OP_POINT", "POINT_CONSUME");
+    private static final Set<String> BADGE_REWARD_TYPES = Set.of("BADGE", "REWARD_BADGE");
+    private static final Set<String> ITEM_REWARD_TYPES = Set.of("ITEM", "REWARD_PHYSICAL", "REWARD_ITEM");
+
     private final UserRewardRecordMapper userRewardRecordMapper;
     private final UserMapper userMapper;
     private final TaskConfigService taskConfigService;
+    private final UserBadgeService userBadgeService;
+    private final UserBadgeMapper userBadgeMapper;
+    private final BadgeMapper badgeMapper;
 
     @Override
     public boolean save(UserRewardRecord record) {
@@ -154,37 +167,7 @@ public class UserRewardRecordServiceImpl extends ServiceImpl<UserRewardRecordMap
         if (status != null) wrapper.eq("status", status);
         wrapper.orderByDesc("create_time");
         Page<UserRewardRecord> result = this.baseMapper.selectPage(page, wrapper);
-
-        List<UserRewardRecord> records = result.getRecords();
-        if (records == null || records.isEmpty()) {
-            return result;
-        }
-
-        // 批量查询用户名，避免 N+1
-        Set<Long> userIds = records.stream()
-                .map(UserRewardRecord::getUserId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-        Map<Long, String> userNameMap = Collections.emptyMap();
-        if (!userIds.isEmpty()) {
-            userNameMap = userMapper.selectBatchIds(userIds).stream()
-                    .collect(Collectors.toMap(User::getId, User::getUsername, (a, b) -> a));
-        }
-
-        // 批量查询任务名，复用任务配置服务的批量接口
-        Set<Long> taskIds = records.stream()
-                .map(UserRewardRecord::getTaskId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-        Map<Long, TaskConfig> taskConfigMap = taskIds.isEmpty()
-                ? Collections.emptyMap()
-                : taskConfigService.getTaskConfigsByIds(taskIds);
-
-        for (UserRewardRecord record : records) {
-            record.setUserName(userNameMap.get(record.getUserId()));
-            TaskConfig taskConfig = taskConfigMap.get(record.getTaskId());
-            record.setTaskName(taskConfig == null ? null : taskConfig.getTaskName());
-        }
+        enrichDisplayFields(result.getRecords());
         return result;
     }
 
@@ -276,17 +259,63 @@ public class UserRewardRecordServiceImpl extends ServiceImpl<UserRewardRecordMap
     @Override
     public Map<String, Object> reconcileSummary(int sampleLimit) {
         int limit = sampleLimit <= 0 ? 20 : sampleLimit;
-        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        List<Map<String, Object>> pointDiffs = buildPointDiffs();
+        List<Map<String, Object>> badgeDiffs = buildBadgeDiffSamples();
+        List<Map<String, Object>> rewardTypeStatusStats = buildRewardTypeStatusStats();
+        List<UserRewardRecord> abnormalSamples = userRewardRecordMapper.findAbnormalRecords(limit);
+        enrichDisplayFields(abnormalSamples);
+
+        Map<String, Object> result = new LinkedHashMap<>();
         result.put("statusCount", userRewardRecordMapper.countByGrantStatus());
         result.put("withoutMessageId", userRewardRecordMapper.countWithoutMessageId());
         result.put("duplicateMessageIds", userRewardRecordMapper.findDuplicateMessageIds(limit));
-        result.put("abnormalSamples", userRewardRecordMapper.findAbnormalRecords(limit));
+        result.put("abnormalSamples", abnormalSamples);
+        result.put("pointTotalDiff", calcPointTotalDiff(pointDiffs));
+        result.put("pointDiffUsers", pointDiffs.size());
+        result.put("badgeTotalDiff", badgeDiffs.size());
+        result.put("itemPendingCount", countItemPendingClaims());
+        result.put("failedGrantTotal", countFailedGrantTotal(rewardTypeStatusStats));
+        result.put("rewardTypeStatusStats", rewardTypeStatusStats);
         result.put("grantStatusRef", java.util.Map.of(
                 "0", "INIT",
                 "1", "PROCESSING",
                 "2", "SUCCESS",
                 "3", "FAILED"
         ));
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> previewReplayDiff(int sampleLimit) {
+        int limit = sampleLimit <= 0 ? 20 : sampleLimit;
+        List<Map<String, Object>> pointDiffs = buildPointDiffs();
+        List<Map<String, Object>> badgeDiffs = buildBadgeDiffSamples();
+        List<UserRewardRecord> failedRecords = listFailedGrantRecords();
+        enrichDisplayFields(failedRecords);
+
+        List<Map<String, Object>> failedSamples = failedRecords.stream()
+                .limit(limit)
+                .map(this::toFailedSample)
+                .collect(Collectors.toList());
+
+        List<Map<String, Object>> rewardTypeStatusStats = buildRewardTypeStatusStats();
+
+        long totalDiffUsers = pointDiffs.size() + badgeDiffs.size() + failedRecords.size();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("totalDiffUsers", totalDiffUsers);
+        result.put("sampleLimit", limit);
+        result.put("pointTotalDiff", calcPointTotalDiff(pointDiffs));
+        result.put("pointDiffUsers", pointDiffs.size());
+        result.put("badgeTotalDiff", badgeDiffs.size());
+        result.put("itemPendingCount", countItemPendingClaims());
+        result.put("failedGrantTotal", failedRecords.size());
+        result.put("rewardTypeStatusStats", rewardTypeStatusStats);
+        result.put("pointSamples", pointDiffs.stream().limit(limit).collect(Collectors.toList()));
+        result.put("badgeSamples", badgeDiffs.stream().limit(limit).collect(Collectors.toList()));
+        result.put("failedSamples", failedSamples);
+        // 兼容旧页面字段。
+        result.put("samples", pointDiffs.stream().limit(limit).collect(Collectors.toList()));
+        result.put("replayRule", "统一补偿：积分余额校准 + 徽章补发 + 失败发奖重试（积分/徽章/实物）");
         return result;
     }
 
@@ -305,31 +334,49 @@ public class UserRewardRecordServiceImpl extends ServiceImpl<UserRewardRecordMap
 
     @Override
     @Transactional
+    public Map<String, Object> executeReplayCompensation() {
+        return executeReplayCompensation(null);
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> executeReplayCompensation(String rewardType) {
+        String executeScope = normalizeExecuteScope(rewardType);
+        List<Map<String, Object>> allFailed = new ArrayList<>();
+
+        int pointAdjustedUsers = 0;
+        int badgeCompensatedUsers = 0;
+        if ("ALL".equals(executeScope) || "POINT".equals(executeScope)) {
+            pointAdjustedUsers = applyPointBalanceDiffs(buildPointDiffs(), allFailed);
+        }
+        if ("ALL".equals(executeScope) || "BADGE".equals(executeScope)) {
+            badgeCompensatedUsers = applyBadgeCompensations(buildBadgeDiffSamples(), allFailed);
+        }
+
+        RetryExecutionResult retryResult = retryFailedGrantRecords(executeScope);
+        allFailed.addAll(retryResult.failedSamples);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("executedRewardType", executeScope);
+        result.put("pointAdjustedUsers", pointAdjustedUsers);
+        result.put("badgeCompensatedUsers", badgeCompensatedUsers);
+        result.put("retriedFailedRecords", retryResult.successCount);
+        result.put("failedRecords", allFailed.size());
+        result.put("failedSamples", allFailed.stream().limit(20).collect(Collectors.toList()));
+        // 兼容旧页面字段。
+        result.put("updatedUsers", pointAdjustedUsers + badgeCompensatedUsers + retryResult.successCount);
+        result.put("failedUsers", allFailed.size());
+        result.put("rule", buildExecuteRule(executeScope));
+        result.put("postCheck", previewReplayDiff(20));
+        return result;
+    }
+
+    @Override
+    @Transactional
     public Map<String, Object> executePointReplayCompensation() {
         List<Map<String, Object>> diffs = buildPointDiffs();
-        int updated = 0;
         List<Map<String, Object>> failed = new ArrayList<>();
-
-        for (Map<String, Object> d : diffs) {
-            Long userId = (Long) d.get("userId");
-            Integer expected = (Integer) d.get("expectedPoints");
-            try {
-                int rows = userMapper.setUserPointBalance(userId, expected);
-                if (rows > 0) {
-                    updated++;
-                } else {
-                    Map<String, Object> f = new LinkedHashMap<>();
-                    f.put("userId", userId);
-                    f.put("error", "user not found");
-                    failed.add(f);
-                }
-            } catch (Exception e) {
-                Map<String, Object> f = new LinkedHashMap<>();
-                f.put("userId", userId);
-                f.put("error", e.getMessage());
-                failed.add(f);
-            }
-        }
+        int updated = applyPointBalanceDiffs(diffs, failed);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("updatedUsers", updated);
@@ -378,6 +425,418 @@ public class UserRewardRecordServiceImpl extends ServiceImpl<UserRewardRecordMap
         return diffs;
     }
 
+    private List<Map<String, Object>> buildBadgeDiffSamples() {
+        List<UserRewardRecord> successBadgeRecords = this.list(
+                new QueryWrapper<UserRewardRecord>()
+                        .in("grant_status", GRANT_SUCCESS)
+                        .in("reward_type", BADGE_REWARD_TYPES)
+                        .select("id", "user_id", "task_id", "reward_value", "create_time")
+        );
+        if (successBadgeRecords.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Set<Integer> badgeCodes = successBadgeRecords.stream()
+                .map(UserRewardRecord::getRewardValue)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (badgeCodes.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Map<Integer, Long> badgeCodeToId = badgeMapper.selectList(
+                new QueryWrapper<Badge>()
+                        .in("code", badgeCodes)
+                        .select("id", "code")
+        ).stream().collect(Collectors.toMap(Badge::getCode, Badge::getId, (a, b) -> a));
+
+        Set<Long> userIds = successBadgeRecords.stream()
+                .map(UserRewardRecord::getUserId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Set<Long> badgeIds = new java.util.HashSet<>(badgeCodeToId.values());
+
+        Set<String> actualPairs = Collections.emptySet();
+        if (!userIds.isEmpty() && !badgeIds.isEmpty()) {
+            actualPairs = userBadgeMapper.selectList(
+                    new QueryWrapper<UserBadge>()
+                            .in("user_id", userIds)
+                            .in("badge_id", badgeIds)
+                            .select("user_id", "badge_id")
+            ).stream().map(row -> row.getUserId() + "_" + row.getBadgeId()).collect(Collectors.toSet());
+        }
+
+        Map<Long, String> userNameMap = buildUserNameMap(userIds);
+        Set<Long> taskIds = successBadgeRecords.stream()
+                .map(UserRewardRecord::getTaskId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, String> taskNameMap = buildTaskNameMap(taskIds);
+
+        Map<String, Map<String, Object>> diffMap = new LinkedHashMap<>();
+        for (UserRewardRecord row : successBadgeRecords) {
+            Long userId = row.getUserId();
+            Integer badgeCode = row.getRewardValue();
+            if (userId == null || badgeCode == null) {
+                continue;
+            }
+            Long badgeId = badgeCodeToId.get(badgeCode);
+            String pairKey = userId + "_" + badgeCode;
+            boolean missing;
+            if (badgeId == null) {
+                missing = true;
+            } else {
+                missing = !actualPairs.contains(userId + "_" + badgeId);
+            }
+            if (!missing || diffMap.containsKey(pairKey)) {
+                continue;
+            }
+
+            Map<String, Object> sample = new LinkedHashMap<>();
+            sample.put("userId", userId);
+            sample.put("userName", userNameMap.get(userId));
+            sample.put("taskId", row.getTaskId());
+            sample.put("taskName", taskNameMap.get(row.getTaskId()));
+            sample.put("badgeCode", badgeCode);
+            sample.put("badgeId", badgeId);
+            sample.put("recordId", row.getId());
+            sample.put("createTime", row.getCreateTime());
+            diffMap.put(pairKey, sample);
+        }
+        return new ArrayList<>(diffMap.values());
+    }
+
+    private List<Map<String, Object>> buildRewardTypeStatusStats() {
+        List<Map<String, Object>> rawRows = this.baseMapper.selectMaps(
+                new QueryWrapper<UserRewardRecord>()
+                        .select("reward_type AS rewardType", "grant_status AS grantStatus", "COUNT(1) AS cnt")
+                        .groupBy("reward_type", "grant_status")
+        );
+
+        Map<String, Map<String, Long>> grouped = new LinkedHashMap<>();
+        for (Map<String, Object> row : rawRows) {
+            String rewardType = normalizeRewardType(String.valueOf(row.get("rewardType")));
+            Integer grantStatus = parseInt(row.get("grantStatus"));
+            long cnt = parseLong(row.get("cnt")) == null ? 0L : parseLong(row.get("cnt"));
+            Map<String, Long> statusMap = grouped.computeIfAbsent(rewardType, k -> new HashMap<>());
+            statusMap.merge(String.valueOf(grantStatus == null ? -1 : grantStatus), cnt, Long::sum);
+        }
+
+        List<String> order = List.of("POINT", "BADGE", "ITEM", "UNKNOWN");
+        List<Map<String, Object>> stats = new ArrayList<>();
+        for (String type : order) {
+            if (!grouped.containsKey(type)) {
+                continue;
+            }
+            Map<String, Long> statusMap = grouped.get(type);
+            long init = statusMap.getOrDefault("0", 0L);
+            long processing = statusMap.getOrDefault("1", 0L);
+            long success = statusMap.getOrDefault("2", 0L);
+            long failed = statusMap.getOrDefault("3", 0L);
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("rewardType", type);
+            item.put("initCount", init);
+            item.put("processingCount", processing);
+            item.put("successCount", success);
+            item.put("failedCount", failed);
+            item.put("abnormalCount", init + processing + failed);
+            stats.add(item);
+        }
+
+        for (Map.Entry<String, Map<String, Long>> entry : grouped.entrySet()) {
+            if (order.contains(entry.getKey())) {
+                continue;
+            }
+            Map<String, Long> statusMap = entry.getValue();
+            long init = statusMap.getOrDefault("0", 0L);
+            long processing = statusMap.getOrDefault("1", 0L);
+            long success = statusMap.getOrDefault("2", 0L);
+            long failed = statusMap.getOrDefault("3", 0L);
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("rewardType", entry.getKey());
+            item.put("initCount", init);
+            item.put("processingCount", processing);
+            item.put("successCount", success);
+            item.put("failedCount", failed);
+            item.put("abnormalCount", init + processing + failed);
+            stats.add(item);
+        }
+        return stats;
+    }
+
+    private List<UserRewardRecord> listFailedGrantRecords() {
+        return listFailedGrantRecords("ALL");
+    }
+
+    private List<UserRewardRecord> listFailedGrantRecords(String executeScope) {
+        return this.list(
+                new QueryWrapper<UserRewardRecord>()
+                        .eq("grant_status", GRANT_FAILED)
+                        .orderByAsc("create_time")
+        ).stream().filter(record -> {
+            if (record == null) {
+                return false;
+            }
+            String normalizedType = normalizeRewardType(record.getRewardType());
+            return shouldExecuteForType(executeScope, normalizedType);
+        }).collect(Collectors.toList());
+    }
+
+    private int applyPointBalanceDiffs(List<Map<String, Object>> diffs, List<Map<String, Object>> failed) {
+        int updated = 0;
+        for (Map<String, Object> d : diffs) {
+            Long userId = parseLong(d.get("userId"));
+            Integer expected = parseInt(d.get("expectedPoints"));
+            if (userId == null || expected == null) {
+                continue;
+            }
+            try {
+                int rows = userMapper.setUserPointBalance(userId, expected);
+                if (rows > 0) {
+                    updated++;
+                } else {
+                    Map<String, Object> f = new LinkedHashMap<>();
+                    f.put("userId", userId);
+                    f.put("error", "user not found");
+                    failed.add(f);
+                }
+            } catch (Exception e) {
+                Map<String, Object> f = new LinkedHashMap<>();
+                f.put("userId", userId);
+                f.put("error", e.getMessage());
+                failed.add(f);
+            }
+        }
+        return updated;
+    }
+
+    private int applyBadgeCompensations(List<Map<String, Object>> badgeDiffs, List<Map<String, Object>> failed) {
+        int success = 0;
+        for (Map<String, Object> row : badgeDiffs) {
+            Long userId = parseLong(row.get("userId"));
+            Integer badgeCode = parseInt(row.get("badgeCode"));
+            if (userId == null || badgeCode == null) {
+                continue;
+            }
+            try {
+                boolean ok = userBadgeService.grantBadge(userId, badgeCode);
+                if (ok) {
+                    success++;
+                } else {
+                    Map<String, Object> fail = new LinkedHashMap<>();
+                    fail.put("userId", userId);
+                    fail.put("rewardType", "BADGE");
+                    fail.put("error", "badge grant failed");
+                    failed.add(fail);
+                }
+            } catch (Exception e) {
+                Map<String, Object> fail = new LinkedHashMap<>();
+                fail.put("userId", userId);
+                fail.put("rewardType", "BADGE");
+                fail.put("error", e.getMessage());
+                failed.add(fail);
+            }
+        }
+        return success;
+    }
+
+    private RetryExecutionResult retryFailedGrantRecords(String executeScope) {
+        List<UserRewardRecord> failedRecords = listFailedGrantRecords(executeScope);
+        RetryExecutionResult result = new RetryExecutionResult();
+        for (UserRewardRecord record : failedRecords) {
+            String rewardType = normalizeRewardType(record.getRewardType());
+            try {
+                boolean success = retrySingleFailedRecord(record, rewardType);
+                if (!success) {
+                    Map<String, Object> fail = toFailedSample(record);
+                    fail.put("error", "retry returned false");
+                    result.failedSamples.add(fail);
+                    continue;
+                }
+
+                record.setGrantStatus(GRANT_SUCCESS);
+                record.setErrorMsg(null);
+                record.setUpdateTime(new Date());
+                if ("ITEM".equals(rewardType) && record.getStatus() == null) {
+                    record.setStatus(0);
+                }
+                if (!"ITEM".equals(rewardType) && (record.getStatus() == null || record.getStatus() == 0)) {
+                    record.setStatus(1);
+                }
+                this.updateById(record);
+                result.successCount++;
+            } catch (Exception e) {
+                Map<String, Object> fail = toFailedSample(record);
+                fail.put("error", e.getMessage());
+                result.failedSamples.add(fail);
+            }
+        }
+        return result;
+    }
+
+    private boolean shouldExecuteForType(String executeScope, String rewardType) {
+        if ("ALL".equals(executeScope)) {
+            return true;
+        }
+        return executeScope.equals(rewardType);
+    }
+
+    private String normalizeExecuteScope(String rewardType) {
+        if (rewardType == null || rewardType.trim().isEmpty()) {
+            return "ALL";
+        }
+        String normalized = normalizeRewardType(rewardType);
+        if ("POINT".equals(normalized) || "BADGE".equals(normalized) || "ITEM".equals(normalized)) {
+            return normalized;
+        }
+        return "UNKNOWN";
+    }
+
+    private String buildExecuteRule(String executeScope) {
+        if ("POINT".equals(executeScope)) {
+            return "按奖励类型补偿：仅执行积分余额校准，并重试失败的积分发奖记录";
+        }
+        if ("BADGE".equals(executeScope)) {
+            return "按奖励类型补偿：仅执行徽章补发，并重试失败的徽章发奖记录";
+        }
+        if ("ITEM".equals(executeScope)) {
+            return "按奖励类型补偿：仅重试失败的实物发奖记录";
+        }
+        if ("UNKNOWN".equals(executeScope)) {
+            return "按奖励类型补偿：请求奖励类型不支持，未执行任何补偿";
+        }
+        return "统一补偿：先执行失败发奖重试，再执行积分校准与徽章补发，覆盖积分/徽章/实物";
+    }
+
+    private boolean retrySingleFailedRecord(UserRewardRecord record, String rewardType) {
+        if (record == null || record.getUserId() == null) {
+            return false;
+        }
+
+        if ("POINT".equals(rewardType)) {
+            if (record.getRewardValue() == null) {
+                return false;
+            }
+            return userMapper.updateUserPoints(record.getUserId(), record.getRewardValue()) > 0;
+        }
+        if ("BADGE".equals(rewardType)) {
+            if (record.getRewardValue() == null) {
+                return false;
+            }
+            return userBadgeService.grantBadge(record.getUserId(), record.getRewardValue());
+        }
+        if ("ITEM".equals(rewardType)) {
+            // 实物补偿在本地环境采用状态重试方式。
+            return true;
+        }
+        return false;
+    }
+
+    private Map<String, Object> toFailedSample(UserRewardRecord record) {
+        Map<String, Object> sample = new LinkedHashMap<>();
+        sample.put("recordId", record.getId());
+        sample.put("userId", record.getUserId());
+        sample.put("userName", record.getUserName());
+        sample.put("taskId", record.getTaskId());
+        sample.put("taskName", record.getTaskName());
+        sample.put("rewardType", normalizeRewardType(record.getRewardType()));
+        sample.put("rewardValue", record.getRewardValue());
+        sample.put("grantStatus", record.getGrantStatus());
+        sample.put("error", record.getErrorMsg());
+        sample.put("createTime", record.getCreateTime());
+        return sample;
+    }
+
+    private long calcPointTotalDiff(List<Map<String, Object>> diffs) {
+        long total = 0L;
+        for (Map<String, Object> row : diffs) {
+            Integer delta = parseInt(row.get("delta"));
+            if (delta != null) {
+                total += Math.abs((long) delta);
+            }
+        }
+        return total;
+    }
+
+    private long countItemPendingClaims() {
+        return this.count(
+                new QueryWrapper<UserRewardRecord>()
+                        .in("reward_type", ITEM_REWARD_TYPES)
+                        .eq("grant_status", GRANT_SUCCESS)
+                        .eq("status", 0)
+        );
+    }
+
+    private long countFailedGrantTotal(List<Map<String, Object>> rewardTypeStatusStats) {
+        long total = 0L;
+        for (Map<String, Object> row : rewardTypeStatusStats) {
+            Long failed = parseLong(row.get("failedCount"));
+            if (failed != null) {
+                total += failed;
+            }
+        }
+        return total;
+    }
+
+    private void enrichDisplayFields(List<UserRewardRecord> records) {
+        if (records == null || records.isEmpty()) {
+            return;
+        }
+
+        Set<Long> userIds = records.stream()
+                .map(UserRewardRecord::getUserId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Set<Long> taskIds = records.stream()
+                .map(UserRewardRecord::getTaskId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<Long, String> userNameMap = buildUserNameMap(userIds);
+        Map<Long, String> taskNameMap = buildTaskNameMap(taskIds);
+
+        for (UserRewardRecord record : records) {
+            record.setUserName(userNameMap.get(record.getUserId()));
+            record.setTaskName(taskNameMap.get(record.getTaskId()));
+        }
+    }
+
+    private Map<Long, String> buildUserNameMap(Set<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return userMapper.selectBatchIds(userIds).stream()
+                .collect(Collectors.toMap(User::getId, User::getUsername, (a, b) -> a));
+    }
+
+    private Map<Long, String> buildTaskNameMap(Set<Long> taskIds) {
+        if (taskIds == null || taskIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return taskConfigService.getTaskConfigsByIds(taskIds).entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, entry -> {
+                    TaskConfig value = entry.getValue();
+                    return value == null ? null : value.getTaskName();
+                }));
+    }
+
+    private String normalizeRewardType(String rewardType) {
+        if (rewardType == null || rewardType.trim().isEmpty()) {
+            return "UNKNOWN";
+        }
+        String normalized = rewardType.trim().toUpperCase(Locale.ROOT);
+        if (normalized.contains("POINT")) {
+            return "POINT";
+        }
+        if (normalized.contains("BADGE")) {
+            return "BADGE";
+        }
+        if (normalized.contains("ITEM") || normalized.contains("PHYSICAL")) {
+            return "ITEM";
+        }
+        return normalized;
+    }
+
     private Long parseLong(Object v) {
         if (v == null) return null;
         if (v instanceof Number) return ((Number) v).longValue();
@@ -396,5 +855,10 @@ public class UserRewardRecordServiceImpl extends ServiceImpl<UserRewardRecordMap
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private static class RetryExecutionResult {
+        int successCount;
+        List<Map<String, Object>> failedSamples = new ArrayList<>();
     }
 }

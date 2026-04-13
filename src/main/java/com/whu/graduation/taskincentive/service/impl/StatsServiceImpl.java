@@ -1,11 +1,18 @@
 package com.whu.graduation.taskincentive.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.whu.graduation.taskincentive.dao.entity.RiskDecisionLog;
+import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
+import com.whu.graduation.taskincentive.dao.entity.UserRewardRecord;
+import com.whu.graduation.taskincentive.dao.mapper.RiskDecisionLogMapper;
+import com.whu.graduation.taskincentive.dao.mapper.TaskConfigMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserRewardRecordMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserTaskInstanceMapper;
 import com.whu.graduation.taskincentive.dto.BarChartData;
 import com.whu.graduation.taskincentive.dto.DailyStatItem;
+import com.whu.graduation.taskincentive.dto.LatestActivityItem;
 import com.whu.graduation.taskincentive.dto.ProgressDataItem;
 import com.whu.graduation.taskincentive.service.StatsService;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
@@ -21,8 +29,11 @@ public class StatsServiceImpl implements StatsService {
     private final UserMapper userMapper;
     private final UserTaskInstanceMapper userTaskInstanceMapper;
     private final UserRewardRecordMapper userRewardRecordMapper;
+    private final TaskConfigMapper taskConfigMapper;
+    private final RiskDecisionLogMapper riskDecisionLogMapper;
 
     private static final SimpleDateFormat SDF = new SimpleDateFormat("yyyy-MM-dd");
+    private static final SimpleDateFormat DATE_TIME_SDF = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     @Override
     public List<BarChartData> getTwoWeeksTaskReceiveAndComplete() {
@@ -272,6 +283,143 @@ public class StatsServiceImpl implements StatsService {
         List<DailyStatItem> sub = all.subList(from, to);
         pg.setRecords(sub); pg.setTotal(all.size());
         return pg;
+    }
+
+    @Override
+    public List<LatestActivityItem> latestActivities(int limit) {
+        int safeLimit = Math.max(5, Math.min(limit, 20));
+        int fetchLimit = Math.max(6, safeLimit);
+
+        List<LatestActivityItem> taskItems = buildTaskConfigActivities(fetchLimit);
+        List<LatestActivityItem> riskItems = buildRiskActivities(fetchLimit);
+        List<LatestActivityItem> rewardItems = buildRewardActivities(fetchLimit);
+
+        return Stream.of(taskItems, riskItems, rewardItems)
+                .flatMap(Collection::stream)
+                .sorted(Comparator.comparing(LatestActivityItem::getTime, Comparator.nullsLast(String::compareTo)).reversed())
+                .limit(safeLimit)
+                .toList();
+    }
+
+    private List<LatestActivityItem> buildTaskConfigActivities(int limit) {
+        List<TaskConfig> rows = taskConfigMapper.selectList(
+                new LambdaQueryWrapper<TaskConfig>()
+                        .orderByDesc(TaskConfig::getUpdateTime)
+                        .last("LIMIT " + limit)
+        );
+
+        List<LatestActivityItem> items = new ArrayList<>();
+        for (TaskConfig task : rows) {
+            boolean createdRecently = task.getCreateTime() != null
+                    && task.getUpdateTime() != null
+                    && Math.abs(task.getUpdateTime().getTime() - task.getCreateTime().getTime()) < 1000L;
+            String action = createdRecently ? "新建任务" : "更新任务";
+            String statusText = Objects.equals(task.getStatus(), 1) ? "启用" : "停用";
+            items.add(LatestActivityItem.builder()
+                    .type("TASK_CONFIG")
+                    .level("info")
+                    .title(action + "：" + nullSafe(task.getTaskName(), "未命名任务"))
+                    .summary(String.format("任务类型：%s，奖励类型：%s，当前状态：%s",
+                            nullSafe(task.getTaskType(), "-"),
+                            nullSafe(task.getRewardType(), "-"),
+                            statusText))
+                    .time(formatDateTime(task.getUpdateTime()))
+                    .build());
+        }
+        return items;
+    }
+
+    private List<LatestActivityItem> buildRiskActivities(int limit) {
+        List<RiskDecisionLog> rows = riskDecisionLogMapper.selectList(
+                new LambdaQueryWrapper<RiskDecisionLog>()
+                        .in(RiskDecisionLog::getDecision, Arrays.asList("REJECT", "REVIEW", "FREEZE", "DEGRADE_PASS"))
+                        .orderByDesc(RiskDecisionLog::getCreatedAt)
+                        .last("LIMIT " + limit)
+        );
+
+        Set<Long> userIds = rows.stream()
+            .map(RiskDecisionLog::getUserId)
+            .filter(Objects::nonNull)
+            .collect(java.util.stream.Collectors.toSet());
+        Set<Long> taskIds = rows.stream()
+            .map(RiskDecisionLog::getTaskId)
+            .filter(Objects::nonNull)
+            .collect(java.util.stream.Collectors.toSet());
+
+        Map<Long, String> userNameMap = userIds.isEmpty()
+            ? Collections.emptyMap()
+            : userMapper.selectBatchIds(userIds).stream()
+            .collect(java.util.stream.Collectors.toMap(com.whu.graduation.taskincentive.dao.entity.User::getId,
+                com.whu.graduation.taskincentive.dao.entity.User::getUsername,
+                (a, b) -> a));
+        Map<Long, String> taskNameMap = taskIds.isEmpty()
+            ? Collections.emptyMap()
+            : taskConfigMapper.selectBatchIds(taskIds).stream()
+            .collect(java.util.stream.Collectors.toMap(TaskConfig::getId, TaskConfig::getTaskName, (a, b) -> a));
+
+        List<LatestActivityItem> items = new ArrayList<>();
+        for (RiskDecisionLog row : rows) {
+            String userName = nullSafe(userNameMap.get(row.getUserId()), "未知用户");
+            String taskName = nullSafe(taskNameMap.get(row.getTaskId()), "未知任务");
+            items.add(LatestActivityItem.builder()
+                    .type("RISK_DECISION")
+                    .level(resolveRiskLevel(row.getDecision()))
+                    .title("风控判定：" + nullSafe(row.getDecision(), "UNKNOWN"))
+                .summary(String.format("用户 %s，任务 %s，原因码：%s",
+                    userName,
+                    taskName,
+                            nullSafe(row.getReasonCode(), "-")))
+                    .time(formatDateTime(row.getCreatedAt()))
+                    .build());
+        }
+        return items;
+    }
+
+    private List<LatestActivityItem> buildRewardActivities(int limit) {
+        List<UserRewardRecord> rows = userRewardRecordMapper.selectList(
+                new LambdaQueryWrapper<UserRewardRecord>()
+                        .in(UserRewardRecord::getGrantStatus, Arrays.asList(1, 3))
+                        .orderByDesc(UserRewardRecord::getUpdateTime)
+                        .last("LIMIT " + limit)
+        );
+
+        List<LatestActivityItem> items = new ArrayList<>();
+        for (UserRewardRecord row : rows) {
+            boolean failed = Objects.equals(row.getGrantStatus(), 3);
+            items.add(LatestActivityItem.builder()
+                    .type("REWARD_EXCEPTION")
+                    .level(failed ? "danger" : "warning")
+                    .title(failed ? "奖励发放失败" : "奖励发放处理中")
+                    .summary(String.format("用户 %s，任务 %s，奖励类型：%s%s",
+                            String.valueOf(row.getUserId()),
+                            String.valueOf(row.getTaskId()),
+                            nullSafe(row.getRewardType(), "-"),
+                            failed && row.getErrorMsg() != null ? "，错误：" + row.getErrorMsg() : ""))
+                    .time(formatDateTime(row.getUpdateTime() != null ? row.getUpdateTime() : row.getCreateTime()))
+                    .build());
+        }
+        return items;
+    }
+
+    private String formatDateTime(Date date) {
+        if (date == null) {
+            return "";
+        }
+        return DATE_TIME_SDF.format(date);
+    }
+
+    private String resolveRiskLevel(String decision) {
+        if ("FREEZE".equalsIgnoreCase(decision) || "REJECT".equalsIgnoreCase(decision)) {
+            return "danger";
+        }
+        if ("REVIEW".equalsIgnoreCase(decision)) {
+            return "warning";
+        }
+        return "info";
+    }
+
+    private String nullSafe(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     private String getWeekName(Calendar c) {

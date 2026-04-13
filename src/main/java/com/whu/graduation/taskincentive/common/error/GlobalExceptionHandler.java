@@ -4,6 +4,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseBody;
@@ -31,6 +32,18 @@ public class GlobalExceptionHandler {
                 .map(e -> e.getField() + ":" + e.getDefaultMessage())
                 .collect(Collectors.joining(", "));
         ErrorResponse resp = new ErrorResponse(ErrorCode.VALIDATION_ERROR.getCode(), msg);
+        return ResponseEntity.badRequest().body(resp);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    @ResponseBody
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        String name = ex.getName();
+        String value = ex.getValue() == null ? "null" : String.valueOf(ex.getValue());
+        ErrorResponse resp = new ErrorResponse(
+                ErrorCode.VALIDATION_ERROR.getCode(),
+                String.format("%s format invalid: %s", name, value)
+        );
         return ResponseEntity.badRequest().body(resp);
     }
 

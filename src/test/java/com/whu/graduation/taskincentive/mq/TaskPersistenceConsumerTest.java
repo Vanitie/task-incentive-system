@@ -85,13 +85,13 @@ class TaskPersistenceConsumerTest {
         when(instanceService.updateWithVersion(any(UserTaskInstance.class))).thenReturn(0).thenReturn(1);
         when(instanceService.getById(100L)).thenReturn(latest);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.setIfAbsent(eq("mq:processed:m-ok"), eq("1"), anyLong(), eq(TimeUnit.DAYS))).thenReturn(true);
+        when(valueOperations.setIfAbsent(eq("mq:processed:m-ok"), eq("1"), anyLong(), eq(TimeUnit.HOURS))).thenReturn(true);
 
         consumer.consume(wrapped, acknowledgment);
 
         verify(instanceService, times(2)).updateWithVersion(any(UserTaskInstance.class));
         verify(instanceService).getById(100L);
-        verify(valueOperations).setIfAbsent(eq("mq:processed:m-ok"), eq("1"), eq(7L), eq(TimeUnit.DAYS));
+        verify(valueOperations).setIfAbsent(eq("mq:processed:m-ok"), eq("1"), eq(6L), eq(TimeUnit.HOURS));
         verify(acknowledgment).acknowledge();
     }
 
@@ -119,7 +119,7 @@ class TaskPersistenceConsumerTest {
         when(redisTemplate.hasKey("mq:processed:m-data")).thenReturn(false);
         when(instanceService.updateWithVersion(any(UserTaskInstance.class))).thenReturn(1);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.setIfAbsent(eq("mq:processed:m-data"), eq("1"), anyLong(), eq(TimeUnit.DAYS))).thenReturn(true);
+        when(valueOperations.setIfAbsent(eq("mq:processed:m-data"), eq("1"), anyLong(), eq(TimeUnit.HOURS))).thenReturn(true);
 
         consumer.consume(wrapped, acknowledgment);
 
@@ -136,7 +136,7 @@ class TaskPersistenceConsumerTest {
         when(redisTemplate.hasKey("mq:processed:m-body")).thenReturn(false);
         when(instanceService.updateWithVersion(any(UserTaskInstance.class))).thenReturn(1);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.setIfAbsent(eq("mq:processed:m-body"), eq("1"), anyLong(), eq(TimeUnit.DAYS))).thenReturn(false);
+        when(valueOperations.setIfAbsent(eq("mq:processed:m-body"), eq("1"), anyLong(), eq(TimeUnit.HOURS))).thenReturn(false);
 
         consumer.consume(wrapped, acknowledgment);
 
@@ -153,7 +153,7 @@ class TaskPersistenceConsumerTest {
         when(redisTemplate.hasKey("mq:processed:m-instance")).thenReturn(false);
         when(instanceService.updateWithVersion(any(UserTaskInstance.class))).thenReturn(1);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.setIfAbsent(eq("mq:processed:m-instance"), eq("1"), anyLong(), eq(TimeUnit.DAYS))).thenReturn(true);
+        when(valueOperations.setIfAbsent(eq("mq:processed:m-instance"), eq("1"), anyLong(), eq(TimeUnit.HOURS))).thenReturn(true);
 
         consumer.consume(wrapped, acknowledgment);
 
@@ -170,7 +170,7 @@ class TaskPersistenceConsumerTest {
         when(redisTemplate.hasKey("mq:processed:m-dedup-err")).thenThrow(new RuntimeException("redis down"));
         when(instanceService.updateWithVersion(any(UserTaskInstance.class))).thenReturn(1);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.setIfAbsent(eq("mq:processed:m-dedup-err"), eq("1"), anyLong(), eq(TimeUnit.DAYS))).thenReturn(true);
+        when(valueOperations.setIfAbsent(eq("mq:processed:m-dedup-err"), eq("1"), anyLong(), eq(TimeUnit.HOURS))).thenReturn(true);
 
         consumer.consume(wrapped, acknowledgment);
 
@@ -188,7 +188,7 @@ class TaskPersistenceConsumerTest {
         when(instanceService.updateWithVersion(any(UserTaskInstance.class))).thenReturn(0);
         when(instanceService.getById(404L)).thenReturn(null);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.setIfAbsent(eq("mq:processed:m-no-latest"), eq("1"), anyLong(), eq(TimeUnit.DAYS))).thenReturn(true);
+        when(valueOperations.setIfAbsent(eq("mq:processed:m-no-latest"), eq("1"), anyLong(), eq(TimeUnit.HOURS))).thenReturn(true);
 
         consumer.consume(wrapped, acknowledgment);
 
@@ -206,7 +206,7 @@ class TaskPersistenceConsumerTest {
         when(redisTemplate.hasKey("mq:processed:m-set-fail")).thenReturn(false);
         when(instanceService.updateWithVersion(any(UserTaskInstance.class))).thenReturn(1);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.setIfAbsent(eq("mq:processed:m-set-fail"), eq("1"), anyLong(), eq(TimeUnit.DAYS)))
+        when(valueOperations.setIfAbsent(eq("mq:processed:m-set-fail"), eq("1"), anyLong(), eq(TimeUnit.HOURS)))
                 .thenThrow(new RuntimeException("set fail"));
 
         consumer.consume(wrapped, acknowledgment);

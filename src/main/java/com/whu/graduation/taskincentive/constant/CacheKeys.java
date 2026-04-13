@@ -33,4 +33,5 @@ public final class CacheKeys {
 
     // 其它常量
     public static final long DEFAULT_DEDUP_TTL_DAYS = 7L;
+    public static final long DEFAULT_DEDUP_TTL_HOURS = 6L;
 }

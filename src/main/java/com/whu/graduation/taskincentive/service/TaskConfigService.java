@@ -2,6 +2,7 @@ package com.whu.graduation.taskincentive.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
+import com.whu.graduation.taskincentive.dao.entity.TaskConfigHistory;
 
 import java.util.List;
 import java.util.Map;
@@ -115,6 +116,11 @@ public interface TaskConfigService {
      * 多条件分页查询任务配置
      */
     Page<TaskConfig> searchByConditions(String taskName, String taskType, Integer status, String rewardType, Page<TaskConfig> page);
+
+    /**
+     * 按任务ID查询配置历史（按版本倒序）。
+     */
+    List<TaskConfigHistory> listHistoryByTaskId(Long taskId);
 
     /**
      * 启动预热：加载全部任务配置到本地缓存和 Redis。

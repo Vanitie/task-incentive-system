@@ -33,6 +33,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -47,6 +48,7 @@ import java.util.concurrent.TimeUnit;
 public class RiskDecisionServiceImpl implements RiskDecisionService {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(RiskDecisionServiceImpl.class);
+    private static final long DECISION_DEDUP_TTL_MINUTES = 30L;
 
     private final RiskDecisionEngine decisionEngine;
     private final RiskMetricStore metricStore;
@@ -191,7 +193,8 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
                                                    List<RiskHitRule> hitRules, long start,
                                                    Integer riskScore, Double degradeRatio) {
         long latency = System.currentTimeMillis() - start;
-        RiskDecisionResponse response = buildResponseOnly(traceId, action, reason, hitRules, riskScore, degradeRatio);
+        List<RiskHitRule> normalizedHitRules = normalizeHitRules(action, reason, hitRules);
+        RiskDecisionResponse response = buildResponseOnly(traceId, action, reason, normalizedHitRules, riskScore, degradeRatio);
 
         RiskDecisionLog decisionLog = RiskDecisionLog.builder()
                 .id(IdWorker.getId())
@@ -201,7 +204,7 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
                 .taskId(request.getTaskId())
                 .decision(action.name())
                 .reasonCode(reason)
-                .hitRules(toJson(hitRules))
+                .hitRules(toJson(normalizedHitRules))
                 .riskScore(riskScore == null ? 0 : riskScore)
                 .latencyMs(latency)
                 .createdAt(new Date())
@@ -230,7 +233,8 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
                                              List<RiskHitRule> hitRules, long start,
                                              Integer riskScore, Double degradeRatio) {
         long latency = System.currentTimeMillis() - start;
-        RiskDecisionResponse response = buildResponseOnly(traceId, action, reason, hitRules, riskScore, degradeRatio);
+        List<RiskHitRule> normalizedHitRules = normalizeHitRules(action, reason, hitRules);
+        RiskDecisionResponse response = buildResponseOnly(traceId, action, reason, normalizedHitRules, riskScore, degradeRatio);
 
         RiskDecisionLog decisionLog = RiskDecisionLog.builder()
                 .id(IdWorker.getId())
@@ -240,7 +244,7 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
                 .taskId(request.getTaskId())
                 .decision(action.name())
                 .reasonCode(reason)
-                .hitRules(toJson(hitRules))
+                .hitRules(toJson(normalizedHitRules))
                 .riskScore(riskScore == null ? 0 : riskScore)
                 .latencyMs(latency)
                 .createdAt(new Date())
@@ -280,8 +284,20 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
         }
         QueryWrapper<RiskDecisionLog> wrapper = new QueryWrapper<RiskDecisionLog>()
                 .eq("request_id", request.getRequestId())
+                .eq("event_id", request.getEventId())
+                .eq("task_id", request.getTaskId())
                 .last("LIMIT 1");
-        return riskDecisionLogMapper.selectOne(wrapper) == null;
+        // 兼容历史数据：如果 event_id 为空，回退到 request+task 级别查重。
+        if (request.getEventId() == null || request.getEventId().isEmpty()) {
+            wrapper = new QueryWrapper<RiskDecisionLog>()
+                    .eq("request_id", request.getRequestId())
+                    .eq("task_id", request.getTaskId())
+                    .last("LIMIT 1");
+        }
+        if (riskDecisionLogMapper.selectOne(wrapper) != null) {
+            return false;
+        }
+        return true;
     }
 
     private boolean hitWhitelistDirect(RiskDecisionRequest request) {
@@ -475,6 +491,26 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
                 .build();
     }
 
+    private List<RiskHitRule> normalizeHitRules(RiskDecisionAction action, String reason, List<RiskHitRule> hitRules) {
+        if (hitRules != null && !hitRules.isEmpty()) {
+            return hitRules;
+        }
+        if (action == null || action == RiskDecisionAction.PASS) {
+            return hitRules == null ? Collections.emptyList() : hitRules;
+        }
+        String normalizedReason = (reason == null || reason.trim().isEmpty()) ? action.name() : reason;
+        List<RiskHitRule> fallback = new ArrayList<>();
+        fallback.add(RiskHitRule.builder()
+                .ruleId(null)
+                .ruleName(normalizedReason)
+                .ruleType("BACKFILL")
+                .action(action.name())
+                .actionParams(null)
+                .reasonCode(normalizedReason)
+                .build());
+        return fallback;
+    }
+
     private String toJson(Object obj) {
         if (obj == null) return null;
         try {
@@ -488,9 +524,23 @@ public class RiskDecisionServiceImpl implements RiskDecisionService {
         if (request.getRequestId() == null || request.getRequestId().isEmpty()) {
             return true;
         }
-        String key = RiskConstants.CACHE_DECISION_DEDUP_PREFIX + request.getRequestId();
-        Boolean ok = redisTemplate.opsForValue().setIfAbsent(key, "1", 7, TimeUnit.DAYS);
+        String dedupToken = buildDecisionDedupToken(request);
+        String key = RiskConstants.CACHE_DECISION_DEDUP_PREFIX + dedupToken;
+        Boolean ok = redisTemplate.opsForValue().setIfAbsent(key, "1", DECISION_DEDUP_TTL_MINUTES, TimeUnit.MINUTES);
         return ok == null || ok;
+    }
+
+    private String buildDecisionDedupToken(RiskDecisionRequest request) {
+        if (request == null || request.getRequestId() == null || request.getRequestId().isEmpty()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder(request.getRequestId());
+        sb.append(":task=").append(request.getTaskId() == null ? "_" : request.getTaskId());
+        String eventId = request.getEventId();
+        if (eventId != null && !eventId.isEmpty()) {
+            sb.append(":event=").append(eventId);
+        }
+        return sb.toString();
     }
 
     private boolean hitBlacklist(RiskDecisionRequest request) {

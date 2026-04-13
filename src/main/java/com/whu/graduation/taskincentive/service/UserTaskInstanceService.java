@@ -2,6 +2,7 @@ package com.whu.graduation.taskincentive.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
+import com.whu.graduation.taskincentive.dto.UserActionAnalyticsDTO;
 
 import java.util.List;
 
@@ -99,6 +100,16 @@ public interface UserTaskInstanceService {
      * 按用户ID、任务ID、状态组合条件分页查询任务实例列表
      */
     Page<UserTaskInstance> listByConditions(Page<UserTaskInstance> page, Long userId, Long taskId, Integer status);
+
+    /**
+     * TopN：接取任务最多用户
+     */
+    List<UserActionAnalyticsDTO.TopNItem> topAcceptedUsers(int n);
+
+    /**
+     * TopN：任务类型接取次数
+     */
+    List<UserActionAnalyticsDTO.TopNItem> topAcceptedTaskTypes(int n);
 
     class HotUserWarmupStats {
         private final int userCount;

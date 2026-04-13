@@ -44,7 +44,7 @@ public class RiskDecisionEngine {
                             .ruleType(rule.getType())
                             .action(rule.getAction())
                             .actionParams(rule.getActionParams())
-                            .reasonCode(rule.getAction())
+                            .reasonCode(rule.getName() == null || rule.getName().trim().isEmpty() ? rule.getAction() : rule.getName())
                             .build());
                 }
             }
@@ -63,9 +63,10 @@ public class RiskDecisionEngine {
         }
 
         RiskDecisionAction action = decideAction(hits, rules);
+        String reasonCode = resolveReasonCode(action, hits);
         RiskDecisionResponse.RiskDecisionResponseBuilder builder = RiskDecisionResponse.builder()
                 .decision(action.name())
-                .reasonCode(action.name())
+                .reasonCode(reasonCode)
                 .hitRules(hits)
                 .riskScore(calcScore(hits));
 
@@ -73,6 +74,26 @@ public class RiskDecisionEngine {
             builder.degradeRatio(parseDegradeRatio(hits));
         }
         return builder.build();
+    }
+
+    private String resolveReasonCode(RiskDecisionAction action, List<RiskHitRule> hits) {
+        if (hits == null || hits.isEmpty()) {
+            return action.name();
+        }
+        for (RiskHitRule hit : hits) {
+            if (hit == null || hit.getAction() == null) {
+                continue;
+            }
+            if (action.name().equalsIgnoreCase(hit.getAction())) {
+                if (hit.getReasonCode() != null && !hit.getReasonCode().trim().isEmpty()) {
+                    return hit.getReasonCode();
+                }
+                if (hit.getRuleName() != null && !hit.getRuleName().trim().isEmpty()) {
+                    return hit.getRuleName();
+                }
+            }
+        }
+        return action.name();
     }
 
     private RiskDecisionAction decideAction(List<RiskHitRule> hits, List<RiskRule> rules) {

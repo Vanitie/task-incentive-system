@@ -1,4 +1,6 @@
 
+package com.whu.graduation.taskincentive.service;
+
 import com.whu.graduation.taskincentive.common.error.BusinessException;
 import com.whu.graduation.taskincentive.common.enums.UserTaskStatus;
 import com.alibaba.fastjson.JSON;

@@ -31,7 +31,7 @@ public class UserActionLog {
     private Long userId;
 
     /**
-     * 行为类型：用户学习 USER_LEARN / 用户签到 USER_SIGN / 其他 OTHER
+     * 行为类型：用户学习 USER_LEARN / 用户签到 USER_SIGN / 用户领奖 USER_REWARD_CLAIM / 其他 OTHER
      */
     private String actionType;
 

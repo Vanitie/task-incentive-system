@@ -86,6 +86,21 @@ public interface UserRewardRecordService {
 
     Map<String, Object> reconcileSummary(int sampleLimit);
 
+    /**
+     * 统一奖励补偿预览（积分/徽章/实物 + 失败发奖）
+     */
+    Map<String, Object> previewReplayDiff(int sampleLimit);
+
+    /**
+     * 统一奖励补偿执行（积分校准 + 徽章补发 + 失败重试）
+     */
+    Map<String, Object> executeReplayCompensation();
+
+    /**
+     * 按奖励类型执行补偿（POINT/BADGE/ITEM）
+     */
+    Map<String, Object> executeReplayCompensation(String rewardType);
+
     Map<String, Object> previewPointReplayDiff(int sampleLimit);
 
     Map<String, Object> executePointReplayCompensation();

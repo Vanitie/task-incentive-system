@@ -52,6 +52,7 @@ public class SecurityConfig {
             // 开发环境：开放 swagger、auth 和 actuator
             http.authorizeHttpRequests(auth -> auth
                     .requestMatchers("/api/auth/login", "/api/auth/register").permitAll()
+                    .requestMatchers("/api/badge/image/**").permitAll()
                     .requestMatchers("/api/auth/me").authenticated()
                     .requestMatchers("/api/risk/**", "/api/task-config/**", "/api/task-stock/**", "/api/monitor/**").hasRole("ADMIN")
                     .requestMatchers("/api/engine/**", "/api/user-task/**", "/api/user-reward/**", "/api/user-badge/**", "/api/user-action-log/**", "/api/stats/**", "/api/benchmark/**").hasAnyRole("USER", "ADMIN")
@@ -64,6 +65,7 @@ public class SecurityConfig {
             // 非开发环境：禁止访问 swagger（denyAll），仅允许 auth 接口公开
             http.authorizeHttpRequests(auth -> auth
                     .requestMatchers("/api/auth/login", "/api/auth/register").permitAll()
+                    .requestMatchers("/api/badge/image/**").permitAll()
                     .requestMatchers("/api/auth/me").authenticated()
                     .requestMatchers("/api/risk/**", "/api/task-config/**", "/api/task-stock/**", "/api/monitor/**").hasRole("ADMIN")
                     .requestMatchers("/api/engine/**", "/api/user-task/**", "/api/user-reward/**", "/api/user-badge/**", "/api/user-action-log/**", "/api/stats/**", "/api/benchmark/**").hasAnyRole("USER", "ADMIN")

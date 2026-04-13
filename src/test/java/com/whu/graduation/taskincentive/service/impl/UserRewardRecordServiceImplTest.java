@@ -7,11 +7,14 @@ import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
 import com.whu.graduation.taskincentive.dao.entity.TaskStock;
 import com.whu.graduation.taskincentive.dao.entity.User;
 import com.whu.graduation.taskincentive.dao.entity.UserRewardRecord;
+import com.whu.graduation.taskincentive.dao.mapper.BadgeMapper;
 import com.whu.graduation.taskincentive.dao.mapper.TaskStockMapper;
+import com.whu.graduation.taskincentive.dao.mapper.UserBadgeMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserRewardRecordMapper;
 import com.whu.graduation.taskincentive.dto.Reward;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
+import com.whu.graduation.taskincentive.service.UserBadgeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -39,6 +42,9 @@ public class UserRewardRecordServiceImplTest {
     private UserRewardRecordMapper userRewardRecordMapper;
     private UserMapper userMapper;
     private TaskConfigService taskConfigService;
+    private UserBadgeService userBadgeService;
+    private UserBadgeMapper userBadgeMapper;
+    private BadgeMapper badgeMapper;
     private UserRewardRecordServiceImpl service;
 
     @BeforeEach
@@ -46,7 +52,23 @@ public class UserRewardRecordServiceImplTest {
         userRewardRecordMapper = Mockito.mock(UserRewardRecordMapper.class);
         userMapper = Mockito.mock(UserMapper.class);
         taskConfigService = Mockito.mock(TaskConfigService.class);
-        service = new UserRewardRecordServiceImpl(userRewardRecordMapper, userMapper, taskConfigService);
+        userBadgeService = Mockito.mock(UserBadgeService.class);
+        userBadgeMapper = Mockito.mock(UserBadgeMapper.class);
+        badgeMapper = Mockito.mock(BadgeMapper.class);
+        service = new UserRewardRecordServiceImpl(
+                userRewardRecordMapper,
+                userMapper,
+                taskConfigService,
+                userBadgeService,
+                userBadgeMapper,
+                badgeMapper
+        );
+
+        // Default empty results for newly added badge/stat query branches.
+        when(userRewardRecordMapper.selectMaps(any())).thenReturn(Collections.emptyList());
+        when(userRewardRecordMapper.selectList(any())).thenReturn(Collections.emptyList());
+        when(userBadgeMapper.selectList(any())).thenReturn(Collections.emptyList());
+        when(badgeMapper.selectList(any())).thenReturn(Collections.emptyList());
 
         try {
             Field baseMapperField = ServiceImpl.class.getDeclaredField("baseMapper");

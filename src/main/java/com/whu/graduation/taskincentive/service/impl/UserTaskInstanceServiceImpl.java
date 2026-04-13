@@ -14,6 +14,7 @@ import com.whu.graduation.taskincentive.dao.entity.User;
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
 import com.whu.graduation.taskincentive.dao.mapper.UserMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserTaskInstanceMapper;
+import com.whu.graduation.taskincentive.dto.UserActionAnalyticsDTO;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
 import com.whu.graduation.taskincentive.service.UserTaskInstanceService;
 import lombok.RequiredArgsConstructor;
@@ -713,6 +714,73 @@ public class UserTaskInstanceServiceImpl extends ServiceImpl<UserTaskInstanceMap
         } catch (Exception e) {
             log.debug("resolve target failed, taskId={}, err={}", config.getId(), e.getMessage());
             return 0;
+        }
+    }
+
+    @Override
+    public List<UserActionAnalyticsDTO.TopNItem> topAcceptedUsers(int n) {
+        int limit = n <= 0 ? 10 : Math.min(n, 100);
+        List<Map<String, Object>> rows = userTaskInstanceMapper.selectTopAcceptedUsers(limit);
+        if (rows == null || rows.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Set<Long> userIds = rows.stream()
+                .map(r -> parseLong(r.get("userId")))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, String> names = new HashMap<>();
+        if (!userIds.isEmpty()) {
+            for (User u : userMapper.selectBatchIds(userIds)) {
+                if (u != null && u.getId() != null) {
+                    names.put(u.getId(), u.getUsername());
+                }
+            }
+        }
+        List<UserActionAnalyticsDTO.TopNItem> result = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            Long userId = parseLong(row.get("userId"));
+            Long cnt = parseLong(row.get("cnt"));
+            if (userId == null) {
+                continue;
+            }
+            result.add(UserActionAnalyticsDTO.TopNItem.builder()
+                    .name(names.getOrDefault(userId, String.valueOf(userId)))
+                    .count(cnt == null ? 0L : cnt)
+                    .build());
+        }
+        return result;
+    }
+
+    @Override
+    public List<UserActionAnalyticsDTO.TopNItem> topAcceptedTaskTypes(int n) {
+        int limit = n <= 0 ? 10 : Math.min(n, 100);
+        List<Map<String, Object>> rows = userTaskInstanceMapper.selectTopAcceptedTaskTypes(limit);
+        if (rows == null || rows.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<UserActionAnalyticsDTO.TopNItem> result = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            String taskType = row.get("taskType") == null ? "UNKNOWN" : String.valueOf(row.get("taskType"));
+            Long cnt = parseLong(row.get("cnt"));
+            result.add(UserActionAnalyticsDTO.TopNItem.builder()
+                    .name(taskType)
+                    .count(cnt == null ? 0L : cnt)
+                    .build());
+        }
+        return result;
+    }
+
+    private Long parseLong(Object v) {
+        if (v == null) {
+            return null;
+        }
+        if (v instanceof Number) {
+            return ((Number) v).longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(v));
+        } catch (Exception e) {
+            return null;
         }
     }
 }

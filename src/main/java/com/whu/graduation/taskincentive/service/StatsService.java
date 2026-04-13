@@ -3,6 +3,7 @@ package com.whu.graduation.taskincentive.service;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dto.BarChartData;
 import com.whu.graduation.taskincentive.dto.DailyStatItem;
+import com.whu.graduation.taskincentive.dto.LatestActivityItem;
 import com.whu.graduation.taskincentive.dto.ProgressDataItem;
 
 import java.util.List;
@@ -23,4 +24,9 @@ public interface StatsService {
      * 分页查询每日统计数据（按日期降序）
      */
     Page<DailyStatItem> pagedDailyStats(int page, int size);
+
+    /**
+     * 首页最新动态流
+     */
+    List<LatestActivityItem> latestActivities(int limit);
 }

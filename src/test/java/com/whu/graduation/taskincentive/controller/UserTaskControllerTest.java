@@ -1,6 +1,7 @@
 package com.whu.graduation.taskincentive.controller;
 
 import com.whu.graduation.taskincentive.dao.entity.UserTaskInstance;
+import com.whu.graduation.taskincentive.service.TaskAnalyticsService;
 import com.whu.graduation.taskincentive.service.UserTaskInstanceService;
 import com.whu.graduation.taskincentive.service.UserViewService;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,9 @@ public class UserTaskControllerTest {
 
     @MockBean
     private UserViewService userViewService;
+
+    @MockBean
+    private TaskAnalyticsService taskAnalyticsService;
 
     @Test
     public void accept_shouldReturnOk() throws Exception {

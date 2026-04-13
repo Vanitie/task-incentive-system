@@ -1,6 +1,7 @@
 package com.whu.graduation.taskincentive.controller;
 
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
+import com.whu.graduation.taskincentive.service.TaskAnalyticsService;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +25,9 @@ public class TaskConfigControllerTest {
 
     @MockBean
     private TaskConfigService taskConfigService;
+
+    @MockBean
+    private TaskAnalyticsService taskAnalyticsService;
 
     @Test
     public void list_shouldReturnOk() throws Exception {

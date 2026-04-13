@@ -341,7 +341,7 @@ public class DemoSqlDataGenerator {
                 LocalDateTime ut = completed ? ct.plusMinutes(rand(1, 180)) : ct.plusMinutes(rand(1, 90));
 
                 UserTaskInstanceSeed ins = new UserTaskInstanceSeed(
-                        nextId(), u.id, t.id, progress, completed ? 1 : 0, 0, null, ct, ut
+                        nextId(), u.id, t.id, progress, completed ? 3 : 2, 0, null, ct, ut
                 );
                 userTaskIndex.put(uk, ins);
                 created++;
@@ -392,6 +392,7 @@ public class DemoSqlDataGenerator {
             out.println("DELETE FROM user_action_log;");
             out.println("DELETE FROM user_task_instance;");
             out.println("DELETE FROM task_stock;");
+            out.println("DELETE FROM task_config_history;");
             out.println("DELETE FROM task_config;");
             out.println("DELETE FROM badge;");
             out.println("DELETE FROM `user`;");
@@ -428,9 +429,22 @@ public class DemoSqlDataGenerator {
                 if ("TASK_TYPE_LIMITED".equals(t.taskType) && t.totalStock != null) {
                     int av = Math.max(0, t.availableStock == null ? t.totalStock : t.availableStock);
                     out.printf(Locale.ROOT,
-                            "INSERT INTO task_stock (`task_id`,`available_stock`,`version`,`create_time`,`update_time`) VALUES (%d,%d,0,'%s','%s');%n",
+                            "INSERT INTO task_stock (`task_id`,`stage_index`,`available_stock`,`version`,`create_time`,`update_time`) VALUES (%d,1,%d,0,'%s','%s');%n",
                             t.id, av, t.createTime.format(DT), t.updateTime.format(DT));
                 }
+            }
+            out.println();
+
+            for (TaskSeed t : allTasks) {
+                out.printf(Locale.ROOT,
+                        "INSERT INTO task_config_history (`id`,`task_id`,`version_no`,`task_name`,`task_type`,`stock_type`,`trigger_event`,`rule_config`,`reward_type`,`reward_value`,`total_stock`,`status`,`start_time`,`end_time`,`source_update_time`,`change_type`,`changed_by`,`create_time`) " +
+                                "VALUES (%d,%d,1,'%s','%s','%s','%s','%s','%s',%d,%s,%d,'%s','%s','%s','CREATE','generator','%s');%n",
+                        nextId(), t.id, esc(t.taskName), esc(t.taskType),
+                        "TASK_TYPE_LIMITED".equals(t.taskType) ? "STOCK_TYPE_LIMITED" : "STOCK_TYPE_UNLIMITED",
+                        esc(t.triggerEvent), esc(t.ruleConfig), esc(t.rewardType), t.rewardValue,
+                        t.totalStock == null ? "NULL" : String.valueOf(t.totalStock),
+                        t.status,
+                        t.startTime.format(DT), t.endTime.format(DT), t.updateTime.format(DT), t.updateTime.format(DT));
             }
             out.println();
 

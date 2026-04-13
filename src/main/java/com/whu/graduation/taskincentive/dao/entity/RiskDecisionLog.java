@@ -64,4 +64,10 @@ public class RiskDecisionLog {
      */
     @TableField(fill = FieldFill.INSERT)
     private Date createdAt;
+
+    @TableField(exist = false)
+    private String userName;
+
+    @TableField(exist = false)
+    private String taskName;
 }

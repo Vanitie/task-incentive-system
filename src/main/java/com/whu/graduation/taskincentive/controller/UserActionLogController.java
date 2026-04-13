@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.UserActionLog;
 import com.whu.graduation.taskincentive.dto.ApiResponse;
 import com.whu.graduation.taskincentive.dto.PageResult;
+    import com.whu.graduation.taskincentive.dto.UserActionAnalyticsDTO;
 import com.whu.graduation.taskincentive.service.UserActionLogService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -72,5 +73,73 @@ public class UserActionLogController {
                 .items(p.getRecords())
                 .build();
         return ApiResponse.success(pr);
+    }
+
+    /**
+     * 行为总量趋势（按天/小时）
+     */
+    @GetMapping("/analytics/trend")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<List<UserActionAnalyticsDTO.TrendPoint>> trend(
+            @RequestParam(required = false) String startTime,
+            @RequestParam(required = false) String endTime,
+            @RequestParam(defaultValue = "DAY") String granularity) {
+        return ApiResponse.success(actionLogService.getActionTrend(startTime, endTime, granularity));
+    }
+
+    /**
+     * 行为类型占比（签到/学习/接任务/领奖）
+     */
+    @GetMapping("/analytics/type-ratio")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<List<UserActionAnalyticsDTO.TypeRatioItem>> typeRatio(
+            @RequestParam(required = false) String startTime,
+            @RequestParam(required = false) String endTime) {
+        return ApiResponse.success(actionLogService.getActionTypeRatio(startTime, endTime));
+    }
+
+    /**
+     * 用户分层行为（新用户/活跃用户/沉默用户）
+     */
+    @GetMapping("/analytics/user-layer")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<List<UserActionAnalyticsDTO.UserLayerItem>> userLayer(
+            @RequestParam(required = false) String startTime,
+            @RequestParam(required = false) String endTime) {
+        return ApiResponse.success(actionLogService.getUserLayerBehavior(startTime, endTime));
+    }
+
+    /**
+     * 一周 7x24 时间热力图
+     */
+    @GetMapping("/analytics/heatmap")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<List<UserActionAnalyticsDTO.HeatmapCell>> heatmap(
+            @RequestParam(required = false) String startTime,
+            @RequestParam(required = false) String endTime) {
+        return ApiResponse.success(actionLogService.getWeeklyHeatmap(startTime, endTime));
+    }
+
+    /**
+     * 转化效率看板（完成率、领奖率、人均行为次数）
+     */
+    @GetMapping("/analytics/conversion")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<UserActionAnalyticsDTO.ConversionDashboard> conversion(
+            @RequestParam(required = false) String startTime,
+            @RequestParam(required = false) String endTime) {
+        return ApiResponse.success(actionLogService.getConversionDashboard(startTime, endTime));
+    }
+
+    /**
+     * TopN 榜单（行为次数最高用户/行为类型）
+     */
+    @GetMapping("/analytics/topn")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<UserActionAnalyticsDTO.TopNResult> topN(
+            @RequestParam(required = false) String startTime,
+            @RequestParam(required = false) String endTime,
+            @RequestParam(defaultValue = "10") Integer n) {
+        return ApiResponse.success(actionLogService.getTopN(startTime, endTime, n));
     }
 }

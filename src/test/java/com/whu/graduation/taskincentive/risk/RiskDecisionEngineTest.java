@@ -46,8 +46,10 @@ public class RiskDecisionEngineTest {
 
         RiskDecisionResponse resp = engine.evaluateRules(Arrays.asList(rule), ctx);
         assertEquals(RiskDecisionAction.REJECT.name(), resp.getDecision());
+        assertEquals("高频刷", resp.getReasonCode());
         assertNotNull(resp.getHitRules());
         assertEquals(1, resp.getHitRules().size());
+        assertEquals("高频刷", resp.getHitRules().get(0).getReasonCode());
     }
 
     @Test

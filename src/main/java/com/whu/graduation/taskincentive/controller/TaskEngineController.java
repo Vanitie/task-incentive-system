@@ -187,7 +187,7 @@ public class TaskEngineController {
         }
         String dedupKey = CacheKeys.DEDUP_MSG_PREFIX + messageId;
         try {
-            Boolean set = redisTemplate.opsForValue().setIfAbsent(dedupKey, "1", CacheKeys.DEFAULT_DEDUP_TTL_DAYS, TimeUnit.DAYS);
+            Boolean set = redisTemplate.opsForValue().setIfAbsent(dedupKey, "1", CacheKeys.DEFAULT_DEDUP_TTL_HOURS, TimeUnit.HOURS);
             if (Boolean.FALSE.equals(set)) {
                 log.info("duplicate event ignored, messageId={}", messageId);
                 return true;

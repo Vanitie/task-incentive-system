@@ -2,6 +2,7 @@ package com.whu.graduation.taskincentive.service;
 
 import com.whu.graduation.taskincentive.dao.entity.UserActionLog;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.whu.graduation.taskincentive.dto.UserActionAnalyticsDTO;
 
 import java.util.List;
 
@@ -55,7 +56,7 @@ public interface UserActionLogService {
 
     /**
      * 按行为类型查询日志
-     * @param actionType 行为类型，例如 USER_LEARN, USER_SIGN
+     * @param actionType 行为类型，例如 USER_LEARN, USER_SIGN, USER_REWARD_CLAIM
      * @return 用户行为日志列表
      */
     List<UserActionLog> selectByActionType(String actionType);
@@ -82,4 +83,34 @@ public interface UserActionLogService {
      * 组合条件分页查询用户行为日志
      */
     Page<UserActionLog> queryByConditions(Page<UserActionLog> page, Long userId, String actionType, String startTime, String endTime);
+
+    /**
+     * 行为总量趋势（按天/小时）
+     */
+    List<UserActionAnalyticsDTO.TrendPoint> getActionTrend(String startTime, String endTime, String granularity);
+
+    /**
+     * 行为类型占比
+     */
+    List<UserActionAnalyticsDTO.TypeRatioItem> getActionTypeRatio(String startTime, String endTime);
+
+    /**
+     * 用户分层行为统计（新用户/活跃用户/沉默用户）
+     */
+    List<UserActionAnalyticsDTO.UserLayerItem> getUserLayerBehavior(String startTime, String endTime);
+
+    /**
+     * 一周 7x24 行为热力图
+     */
+    List<UserActionAnalyticsDTO.HeatmapCell> getWeeklyHeatmap(String startTime, String endTime);
+
+    /**
+     * 转化效率看板
+     */
+    UserActionAnalyticsDTO.ConversionDashboard getConversionDashboard(String startTime, String endTime);
+
+    /**
+     * TopN 榜单（用户/行为类型）
+     */
+    UserActionAnalyticsDTO.TopNResult getTopN(String startTime, String endTime, Integer topN);
 }

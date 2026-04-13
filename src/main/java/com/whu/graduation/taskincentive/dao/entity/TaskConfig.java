@@ -41,7 +41,7 @@ public class TaskConfig {
     private String stockType;
 
     /**
-     * 触发事件类型，例如 用户学习 USER_LEARN, 用户签到 USER_SIGN
+     * 触发事件类型，例如 用户学习 USER_LEARN, 用户签到 USER_SIGN, 用户领奖 USER_REWARD_CLAIM
      */
     private String triggerEvent;
 

@@ -65,6 +65,7 @@ public class EngineChainSqlGenerator {
     private final Map<Integer, Long> badgeIdByCode = new HashMap<>();
 
     private final List<TaskSeed> tasks = new ArrayList<>();
+    private final List<TaskConfigHistorySeed> taskConfigHistories = new ArrayList<>();
     private final List<TaskStockSeed> stocks = new ArrayList<>();
     private final List<UserTaskInstanceSeed> instances = new ArrayList<>();
     private final Set<String> instanceUniqueKeys = new java.util.HashSet<>();
@@ -108,6 +109,7 @@ public class EngineChainSqlGenerator {
         buildUsers(start, end);
         buildBadges();
         buildTasks(start, end);
+        buildTaskConfigHistories(end);
         buildUserTaskInstances(end);
         buildActionAndRewardData();
         buildRiskLists();
@@ -227,6 +229,7 @@ public class EngineChainSqlGenerator {
         badges.clear();
         badgeIdByCode.clear();
         tasks.clear();
+        taskConfigHistories.clear();
         stocks.clear();
         instances.clear();
         instanceUniqueKeys.clear();
@@ -447,6 +450,47 @@ public class EngineChainSqlGenerator {
         }
     }
 
+    private void buildTaskConfigHistories(LocalDate end) {
+        taskConfigHistories.clear();
+        if (tasks.isEmpty()) {
+            return;
+        }
+
+        LocalDate historyWindowStart = end.minusDays(PROFILE_WINDOW_DAYS - 1L);
+        for (TaskSeed task : tasks) {
+            int versionCount = rand(3, 5);
+            java.util.TreeSet<LocalDateTime> versionTimes = new java.util.TreeSet<>();
+            while (versionTimes.size() < versionCount) {
+                LocalDate day = historyWindowStart.plusDays(rand(0, PROFILE_WINDOW_DAYS - 1));
+                versionTimes.add(atRandomTime(day, 9, 23));
+            }
+
+            int versionNo = 1;
+            for (LocalDateTime versionTime : versionTimes) {
+                taskConfigHistories.add(new TaskConfigHistorySeed(
+                        nextId(),
+                        task.id,
+                        versionNo,
+                        task.taskName,
+                        task.taskType,
+                        task.stockType,
+                        task.triggerEvent,
+                        task.ruleConfig,
+                        task.rewardType,
+                        task.rewardValue,
+                        task.totalStock,
+                        task.status,
+                        task.startTime,
+                        task.endTime,
+                        versionTime.minusMinutes(rand(1, 30)),
+                        versionNo == 1 ? "CREATE" : "UPDATE",
+                        "generator",
+                        versionTime));
+                versionNo++;
+            }
+        }
+    }
+
     private void buildUserTaskInstances(LocalDate end) {
         instanceUniqueKeys.clear();
         for (UserSeed user : users) {
@@ -474,11 +518,7 @@ public class EngineChainSqlGenerator {
             int choose = Math.min(receiveCount, pool.size());
             for (int i = 0; i < choose; i++) {
                 TaskSeed task = pool.get(i);
-
-                int status = chooseInstanceStatus();
-                int progress = progressByStatus(task, status);
-                String extra = buildExtraData(task, progress, status);
-                addUserTaskInstanceIfAbsent(user, task, status, progress, extra, end);
+                addUserTaskInstanceIfAbsent(user, task, end);
             }
         }
 
@@ -501,10 +541,7 @@ public class EngineChainSqlGenerator {
                 continue;
             }
             TaskSeed task = tasks.get(R.nextInt(tasks.size()));
-            int status = chooseInstanceStatus();
-            int progress = progressByStatus(task, status);
-            String extra = buildExtraData(task, progress, status);
-            addUserTaskInstanceIfAbsent(user, task, status, progress, extra, end);
+            addUserTaskInstanceIfAbsent(user, task, end);
         }
 
         if (instances.size() < targetInstances && instances.size() >= maxUniquePairs) {
@@ -518,15 +555,15 @@ public class EngineChainSqlGenerator {
 
     private boolean addUserTaskInstanceIfAbsent(UserSeed user,
                                                 TaskSeed task,
-                                                int status,
-                                                int progress,
-                                                String extra,
                                                 LocalDate end) {
         String uniqueKey = user.id + "_" + task.id;
         if (!instanceUniqueKeys.add(uniqueKey)) {
             return false;
         }
         LocalDateTime ct = between(user.createTime.toLocalDate(), end);
+        int status = chooseInstanceStatus(ct.toLocalDate());
+        int progress = progressByStatus(task, status);
+        String extra = buildExtraData(task, progress, status);
         LocalDateTime ut = ct.plusMinutes(rand(1, 240));
         instances.add(new UserTaskInstanceSeed(nextId(), user.id, user.username, task.id, task.taskName,
                 progress, status, 0, extra, ct, ut));
@@ -558,8 +595,16 @@ public class EngineChainSqlGenerator {
             // Preload reward records for completed instances.
             if (ins.status == 3) {
                 int rewardStatus = "ITEM".equals(task.rewardType) ? (R.nextDouble() < 0.7 ? 1 : 0) : 1;
+                int grantStatus = R.nextDouble() < 0.96 ? 2 : 3;
                 rewardRecords.add(new UserRewardRecordSeed(nextId(), ins.userId, ins.taskId,
-                        task.rewardType, rewardStatus, task.rewardValue, ins.updateTime));
+                        task.rewardType, rewardStatus, grantStatus, task.rewardValue, ins.updateTime));
+
+                // 完成任务后，高概率触发一次领奖行为日志。
+                double claimProbability = grantStatus == 2 ? 0.90 : 0.35;
+                if (R.nextDouble() < claimProbability) {
+                    LocalDateTime claimTime = ins.updateTime.plusMinutes(rand(1, 30));
+                    actionLogs.add(new UserActionLogSeed(nextId(), ins.userId, "USER_REWARD_CLAIM", 1, claimTime));
+                }
 
                 if ("POINT".equals(task.rewardType)) {
                     userPointDelta.merge(ins.userId, task.rewardValue, Integer::sum);
@@ -763,6 +808,7 @@ public class EngineChainSqlGenerator {
             out.println("-- profile=" + scale.profileName + ", targetQps=" + scale.targetQps + ", targetDau=" + scale.targetDau + ", registerDays=" + scale.registrationDays);
             out.println("-- generated rows: user=" + users.size()
                     + ", task=" + tasks.size()
+                    + ", task_config_history=" + taskConfigHistories.size()
                     + ", user_task_instance=" + instances.size()
                     + ", user_action_log=" + actionLogs.size()
                     + ", risk_decision_log=" + decisionLogs.size()
@@ -785,6 +831,7 @@ public class EngineChainSqlGenerator {
                     "user_reward_record",
                     "user",
                     "task_config",
+                    "task_config_history",
                     "user_action_log",
                     "user_task_instance",
                     "task_stock"
@@ -821,6 +868,17 @@ public class EngineChainSqlGenerator {
                             t.startTime.format(DT), t.endTime.format(DT), t.createTime.format(DT), t.updateTime.format(DT)));
 
             writeBatchInserts(out,
+                    "task_config_history (`id`,`task_id`,`version_no`,`task_name`,`task_type`,`stock_type`,`trigger_event`,`rule_config`,`reward_type`,`reward_value`,`total_stock`,`status`,`start_time`,`end_time`,`source_update_time`,`change_type`,`changed_by`,`create_time`)",
+                    taskConfigHistories,
+                    h -> String.format(Locale.ROOT, "(%d,%d,%d,'%s','%s','%s','%s','%s','%s',%d,%s,%d,'%s','%s','%s','%s','%s','%s')",
+                            h.id, h.taskId, h.versionNo, esc(h.taskName), h.taskType, h.stockType, h.triggerEvent,
+                            esc(h.ruleConfig), h.rewardType, h.rewardValue,
+                            h.totalStock == null ? "NULL" : String.valueOf(h.totalStock),
+                            h.status,
+                            h.startTime.format(DT), h.endTime.format(DT), h.sourceUpdateTime.format(DT),
+                            h.changeType, esc(h.changedBy), h.createTime.format(DT)));
+
+            writeBatchInserts(out,
                     "task_stock (`task_id`,`stage_index`,`available_stock`,`version`,`create_time`,`update_time`)",
                     stocks,
                     s -> String.format(Locale.ROOT, "(%d,%d,%d,%d,'%s','%s')",
@@ -842,10 +900,10 @@ public class EngineChainSqlGenerator {
                             l.id, l.userId, esc(l.actionType), l.actionValue, l.createTime.format(DT)));
 
             writeBatchInserts(out,
-                    "user_reward_record (`id`,`user_id`,`task_id`,`reward_type`,`status`,`reward_value`,`create_time`)",
+                    "user_reward_record (`id`,`user_id`,`task_id`,`reward_type`,`status`,`grant_status`,`reward_value`,`create_time`)",
                     rewardRecords,
-                    r -> String.format(Locale.ROOT, "(%d,%d,%d,'%s',%d,%d,'%s')",
-                            r.id, r.userId, r.taskId, esc(r.rewardType), r.status, r.rewardValue, r.createTime.format(DT)));
+                    r -> String.format(Locale.ROOT, "(%d,%d,%d,'%s',%d,%d,%d,'%s')",
+                            r.id, r.userId, r.taskId, esc(r.rewardType), r.status, r.grantStatus, r.rewardValue, r.createTime.format(DT)));
 
             writeBatchInserts(out,
                     "user_badge (`id`,`user_id`,`badge_id`,`acquire_time`)",
@@ -1001,7 +1059,14 @@ public class EngineChainSqlGenerator {
         if ("WINDOW_ACCUMULATE".equals(taskType)) {
             return "USER_LEARN";
         }
-        return R.nextBoolean() ? "USER_LEARN" : "OTHER";
+        int dice = rand(1, 100);
+        if (dice <= 45) {
+            return "USER_LEARN";
+        }
+        if (dice <= 80) {
+            return "USER_REWARD_CLAIM";
+        }
+        return "OTHER";
     }
 
     private int chooseRewardValue(String rewardType) {
@@ -1040,7 +1105,11 @@ public class EngineChainSqlGenerator {
             typeName = "时间窗累计";
         }
 
-        String eventName = "USER_SIGN".equals(triggerEvent) ? "签到" : ("USER_LEARN".equals(triggerEvent) ? "学习" : "通用行为");
+        String eventName = "USER_SIGN".equals(triggerEvent)
+            ? "签到"
+            : ("USER_LEARN".equals(triggerEvent)
+            ? "学习"
+            : ("USER_REWARD_CLAIM".equals(triggerEvent) ? "领奖" : "通用行为"));
         String rewardName = "POINT".equals(rewardType) ? (rewardValue + "积分")
                 : ("BADGE".equals(rewardType) ? ("徽章编号" + rewardValue) : ("实物" + rewardValue + "件"));
         return String.format(Locale.ROOT, "%s%s任务-第%d天-%d号（奖励%s）", eventName, typeName, daySeq, index, rewardName);
@@ -1056,11 +1125,21 @@ public class EngineChainSqlGenerator {
         return visible;
     }
 
-    private int chooseInstanceStatus() {
+    private int chooseInstanceStatus(LocalDate instanceDate) {
+        int weeklyIndex = Math.floorMod((int) instanceDate.toEpochDay(), 7);
+        double[] completeRates = {0.11, 0.14, 0.18, 0.13, 0.19, 0.22, 0.10};
+        double[] inProgressRates = {0.30, 0.29, 0.27, 0.30, 0.26, 0.24, 0.31};
+        double[] cancelRates = {0.06, 0.05, 0.04, 0.05, 0.04, 0.03, 0.07};
+
+        double completeRate = completeRates[weeklyIndex];
+        double inProgressRate = inProgressRates[weeklyIndex];
+        double cancelRate = cancelRates[weeklyIndex];
+        double acceptedRate = 1.0 - completeRate - inProgressRate - cancelRate;
+
         double p = R.nextDouble();
-        if (p < 0.55) return 1; // ACCEPTED
-        if (p < 0.85) return 2; // IN_PROGRESS
-        if (p < 0.97) return 3; // COMPLETED
+        if (p < acceptedRate) return 1; // ACCEPTED
+        if (p < acceptedRate + inProgressRate) return 2; // IN_PROGRESS
+        if (p < acceptedRate + inProgressRate + completeRate) return 3; // COMPLETED
         return 4;               // CANCELLED
     }
 
@@ -1321,6 +1400,52 @@ public class EngineChainSqlGenerator {
         }
     }
 
+    static class TaskConfigHistorySeed {
+        long id;
+        long taskId;
+        int versionNo;
+        String taskName;
+        String taskType;
+        String stockType;
+        String triggerEvent;
+        String ruleConfig;
+        String rewardType;
+        int rewardValue;
+        Integer totalStock;
+        int status;
+        LocalDateTime startTime;
+        LocalDateTime endTime;
+        LocalDateTime sourceUpdateTime;
+        String changeType;
+        String changedBy;
+        LocalDateTime createTime;
+
+        TaskConfigHistorySeed(long id, long taskId, int versionNo, String taskName, String taskType,
+                              String stockType, String triggerEvent, String ruleConfig, String rewardType,
+                              int rewardValue, Integer totalStock, int status, LocalDateTime startTime,
+                              LocalDateTime endTime, LocalDateTime sourceUpdateTime, String changeType,
+                              String changedBy, LocalDateTime createTime) {
+            this.id = id;
+            this.taskId = taskId;
+            this.versionNo = versionNo;
+            this.taskName = taskName;
+            this.taskType = taskType;
+            this.stockType = stockType;
+            this.triggerEvent = triggerEvent;
+            this.ruleConfig = ruleConfig;
+            this.rewardType = rewardType;
+            this.rewardValue = rewardValue;
+            this.totalStock = totalStock;
+            this.status = status;
+            this.startTime = startTime;
+            this.endTime = endTime;
+            this.sourceUpdateTime = sourceUpdateTime;
+            this.changeType = changeType;
+            this.changedBy = changedBy;
+            this.createTime = createTime;
+        }
+    }
+
     static class UserTaskInstanceSeed {
         long id;
         long userId;
@@ -1373,16 +1498,18 @@ public class EngineChainSqlGenerator {
         long taskId;
         String rewardType;
         int status;
+        int grantStatus;
         int rewardValue;
         LocalDateTime createTime;
 
         UserRewardRecordSeed(long id, long userId, long taskId, String rewardType,
-                             int status, int rewardValue, LocalDateTime createTime) {
+                             int status, int grantStatus, int rewardValue, LocalDateTime createTime) {
             this.id = id;
             this.userId = userId;
             this.taskId = taskId;
             this.rewardType = rewardType;
             this.status = status;
+            this.grantStatus = grantStatus;
             this.rewardValue = rewardValue;
             this.createTime = createTime;
         }

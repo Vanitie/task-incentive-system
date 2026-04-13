@@ -2,12 +2,15 @@ package com.whu.graduation.taskincentive.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
+import com.whu.graduation.taskincentive.dao.entity.TaskConfigHistory;
 import com.whu.graduation.taskincentive.dto.ApiResponse;
 import com.whu.graduation.taskincentive.dto.PageResult;
+import com.whu.graduation.taskincentive.dto.TaskAnalyticsDTO;
+import com.whu.graduation.taskincentive.service.TaskAnalyticsService;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.*;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -20,6 +23,9 @@ public class TaskConfigController {
 
     @Autowired
     private TaskConfigService taskConfigService;
+
+    @Autowired
+    private TaskAnalyticsService taskAnalyticsService;
 
     /** 查询任务配置（分页） */
     @GetMapping("/list")
@@ -68,15 +74,6 @@ public class TaskConfigController {
 
     /**
      * 多条件分页查询任务配置
-     * @param taskName 任务名称（可选）
-     * @param taskType 任务类型（可选）
-     * @param status 任务状态（可选）
-     * @param rewardType 奖励类型（可选）
-     * @param page 页码
-     * @param size 每页数量
-     * @param orderByEndTime 排序字段（endTime），可选
-     * @param asc 是否升序（true升序，false降序），可选
-     * @return 分页结果
      */
     @GetMapping("/search")
     public ApiResponse<PageResult<TaskConfig>> search(
@@ -90,7 +87,6 @@ public class TaskConfigController {
             @RequestParam(defaultValue = "false") boolean asc
     ) {
         Page<TaskConfig> p = new Page<>(page, size);
-        // 修正排序字段为数据库字段名
         String orderColumn = "endTime".equals(orderByEndTime) ? "end_time" : orderByEndTime;
         if (asc) {
             p.addOrder(com.baomidou.mybatisplus.core.metadata.OrderItem.asc(orderColumn));
@@ -105,5 +101,63 @@ public class TaskConfigController {
                 .items(result.getRecords())
                 .build();
         return ApiResponse.success(pr);
+    }
+
+    @GetMapping("/{id}/analytics/overview")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<TaskAnalyticsDTO.MetricOverview> analyticsOverview(@PathVariable Long id,
+                                                                          @RequestParam(defaultValue = "7") int days) {
+        return ApiResponse.success(taskAnalyticsService.taskConfigOverview(id, days));
+    }
+
+    @GetMapping("/{id}/analytics/audience-hit")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<TaskAnalyticsDTO.AudienceHit> analyticsAudienceHit(@PathVariable Long id,
+                                                                          @RequestParam(defaultValue = "7") int days) {
+        return ApiResponse.success(taskAnalyticsService.taskConfigAudienceHit(id, days));
+    }
+
+    @GetMapping("/{id}/analytics/time-heatmap")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<List<TaskAnalyticsDTO.HeatmapCell>> analyticsTimeHeatmap(@PathVariable Long id,
+                                                                                 @RequestParam(defaultValue = "7") int days) {
+        return ApiResponse.success(taskAnalyticsService.taskConfigTimeHeatmap(id, days));
+    }
+
+    @GetMapping("/{id}/analytics/reward-elasticity")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<List<TaskAnalyticsDTO.RewardElasticityItem>> analyticsRewardElasticity(@PathVariable Long id,
+                                                                                               @RequestParam(defaultValue = "30") int days) {
+        return ApiResponse.success(taskAnalyticsService.taskConfigRewardElasticity(id, days));
+    }
+
+    @GetMapping("/{id}/analytics/version-compare")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<TaskAnalyticsDTO.VersionCompare> analyticsVersionCompare(@PathVariable Long id,
+                                                                                @RequestParam(required = false) String baselineVersion,
+                                                                                @RequestParam(required = false) String compareVersion,
+                                                                                @RequestParam(required = false) String compareStart,
+                                                                                @RequestParam(required = false) String compareEnd) {
+        return ApiResponse.success(taskAnalyticsService.taskConfigVersionCompare(id, baselineVersion, compareVersion, compareStart, compareEnd));
+    }
+
+    @GetMapping("/{id}/analytics/health")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<TaskAnalyticsDTO.HealthMetrics> analyticsHealth(@PathVariable Long id,
+                                                                       @RequestParam(defaultValue = "7") int days) {
+        return ApiResponse.success(taskAnalyticsService.taskConfigHealth(id, days));
+    }
+
+    @GetMapping("/{id}/analytics/insight")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<TaskAnalyticsDTO.TaskConfigInsight> analyticsInsight(@PathVariable Long id,
+                                                                             @RequestParam(defaultValue = "7") int days) {
+        return ApiResponse.success(taskAnalyticsService.taskConfigInsight(id, days));
+    }
+
+    @GetMapping("/{id}/history")
+    @PreAuthorize("hasAnyRole('USER','ADMIN')")
+    public ApiResponse<List<TaskConfigHistory>> history(@PathVariable Long id) {
+        return ApiResponse.success(taskConfigService.listHistoryByTaskId(id));
     }
 }

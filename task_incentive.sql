@@ -11,7 +11,7 @@
  Target Server Version : 80045 (8.0.45)
  File Encoding         : 65001
 
- Date: 01/04/2026 17:03:38
+ Date: 12/04/2026 18:31:29
 */
 
 SET NAMES utf8mb4;
@@ -167,6 +167,34 @@ CREATE TABLE `task_config`  (
   INDEX `idx_task_type`(`task_type` ASC) USING BTREE,
   INDEX `idx_trigger_event`(`trigger_event` ASC) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '任务模板表' ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------
+-- Table structure for task_config_history
+-- ----------------------------
+DROP TABLE IF EXISTS `task_config_history`;
+CREATE TABLE `task_config_history`  (
+  `id` bigint NOT NULL COMMENT '历史记录ID',
+  `task_id` bigint NOT NULL COMMENT '任务ID',
+  `version_no` int NOT NULL COMMENT '版本号，从1递增',
+  `task_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '任务名称',
+  `task_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '任务类型',
+  `stock_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '库存类型',
+  `trigger_event` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '触发事件类型',
+  `rule_config` json NULL COMMENT '任务规则配置快照',
+  `reward_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '奖励类型',
+  `reward_value` int NOT NULL COMMENT '奖励值',
+  `total_stock` int NULL DEFAULT NULL COMMENT '总库存',
+  `status` tinyint NOT NULL COMMENT '任务状态',
+  `start_time` datetime NOT NULL COMMENT '任务开始时间',
+  `end_time` datetime NOT NULL COMMENT '任务结束时间',
+  `source_update_time` datetime NULL DEFAULT NULL COMMENT 'task_config.update_time快照',
+  `change_type` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '变更类型：CREATE/UPDATE',
+  `changed_by` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT 'system' COMMENT '变更人',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '历史记录写入时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `uk_task_version`(`task_id` ASC, `version_no` ASC) USING BTREE,
+  INDEX `idx_task_history_ctime`(`task_id` ASC, `create_time` ASC) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '任务配置历史版本表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for task_stock

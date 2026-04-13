@@ -5,8 +5,8 @@ import com.whu.graduation.taskincentive.dao.entity.RiskDecisionLog;
 import com.whu.graduation.taskincentive.dto.ApiResponse;
 import com.whu.graduation.taskincentive.dto.PageResult;
 import com.whu.graduation.taskincentive.service.risk.RiskDecisionLogService;
+import com.whu.graduation.taskincentive.util.DateParamParser;
 import io.swagger.v3.oas.annotations.Operation;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -31,13 +31,16 @@ public class RiskDecisionLogController {
     public ApiResponse<PageResult<RiskDecisionLog>> list(@RequestParam(defaultValue = "1") int page,
                                                          @RequestParam(defaultValue = "20") int size,
                                                          @RequestParam(required = false) Long taskId,
+                                                         @RequestParam(required = false) Long userId,
+                                                         @RequestParam(required = false) String userName,
+                                                         @RequestParam(required = false) String taskName,
                                                          @RequestParam(required = false) String decision,
-                                                         @RequestParam(required = false)
-                                                         @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") Date start,
-                                                         @RequestParam(required = false)
-                                                         @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") Date end) {
+                                                         @RequestParam(required = false) String start,
+                                                         @RequestParam(required = false) String end) {
+        Date startDate = DateParamParser.parseNullable(start, "start");
+        Date endDate = DateParamParser.parseNullable(end, "end");
         Page<RiskDecisionLog> p = new Page<>(page, size);
-        Page<RiskDecisionLog> result = riskDecisionLogService.page(p, taskId, decision, start, end);
+        Page<RiskDecisionLog> result = riskDecisionLogService.page(p, taskId, userId, userName, taskName, decision, startDate, endDate);
         PageResult<RiskDecisionLog> pr = PageResult.<RiskDecisionLog>builder()
                 .total(result.getTotal())
                 .page((int) result.getCurrent())

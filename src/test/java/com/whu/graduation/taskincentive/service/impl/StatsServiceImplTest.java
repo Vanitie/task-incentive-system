@@ -1,6 +1,8 @@
 package com.whu.graduation.taskincentive.service.impl;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.whu.graduation.taskincentive.dao.mapper.RiskDecisionLogMapper;
+import com.whu.graduation.taskincentive.dao.mapper.TaskConfigMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserRewardRecordMapper;
 import com.whu.graduation.taskincentive.dao.mapper.UserTaskInstanceMapper;
@@ -24,6 +26,8 @@ public class StatsServiceImplTest {
     private UserMapper userMapper;
     private UserTaskInstanceMapper userTaskInstanceMapper;
     private UserRewardRecordMapper userRewardRecordMapper;
+    private TaskConfigMapper taskConfigMapper;
+    private RiskDecisionLogMapper riskDecisionLogMapper;
     private StatsServiceImpl statsService;
 
     private static final SimpleDateFormat SDF = new SimpleDateFormat("yyyy-MM-dd");
@@ -33,7 +37,15 @@ public class StatsServiceImplTest {
         userMapper = Mockito.mock(UserMapper.class);
         userTaskInstanceMapper = Mockito.mock(UserTaskInstanceMapper.class);
         userRewardRecordMapper = Mockito.mock(UserRewardRecordMapper.class);
-        statsService = new StatsServiceImpl(userMapper, userTaskInstanceMapper, userRewardRecordMapper);
+        taskConfigMapper = Mockito.mock(TaskConfigMapper.class);
+        riskDecisionLogMapper = Mockito.mock(RiskDecisionLogMapper.class);
+        statsService = new StatsServiceImpl(
+                userMapper,
+                userTaskInstanceMapper,
+                userRewardRecordMapper,
+                taskConfigMapper,
+                riskDecisionLogMapper
+        );
     }
 
     @Test

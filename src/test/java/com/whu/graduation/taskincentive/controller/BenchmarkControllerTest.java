@@ -1,17 +1,19 @@
 package com.whu.graduation.taskincentive.controller;
 
 import com.whu.graduation.taskincentive.dto.ApiResponse;
+import com.whu.graduation.taskincentive.service.BenchmarkLoadTestService;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.mock;
 
 class BenchmarkControllerTest {
 
     @Test
     void noop_shouldReturnOkStatusMap() {
-        BenchmarkController controller = new BenchmarkController();
+        BenchmarkController controller = new BenchmarkController(mock(BenchmarkLoadTestService.class));
 
         ApiResponse<?> response = controller.noop();
 

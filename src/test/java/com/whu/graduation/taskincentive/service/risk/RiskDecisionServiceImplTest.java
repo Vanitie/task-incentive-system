@@ -79,7 +79,7 @@ public class RiskDecisionServiceImplTest {
         userRewardRecordMapper = mock(UserRewardRecordMapper.class);
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.setIfAbsent(anyString(), anyString(), anyLong(), eq(TimeUnit.DAYS))).thenReturn(true);
+        when(valueOperations.setIfAbsent(anyString(), anyString(), anyLong(), eq(TimeUnit.MINUTES))).thenReturn(true);
         when(valueOperations.increment(anyString())).thenReturn(1L);
         when(redisTemplate.expire(anyString(), anyLong(), eq(TimeUnit.SECONDS))).thenReturn(true);
 
@@ -123,7 +123,7 @@ public class RiskDecisionServiceImplTest {
 
     @Test
     public void evaluate_shouldRejectReplay_whenDedupFails() {
-        when(valueOperations.setIfAbsent(anyString(), anyString(), anyLong(), eq(TimeUnit.DAYS))).thenReturn(false);
+        when(valueOperations.setIfAbsent(anyString(), anyString(), anyLong(), eq(TimeUnit.MINUTES))).thenReturn(false);
 
         RiskDecisionResponse resp = service.evaluate(baseRequest());
 
@@ -169,7 +169,7 @@ public class RiskDecisionServiceImplTest {
         RiskDecisionResponse resp = service.evaluate(req);
 
         assertEquals("PASS", resp.getDecision());
-        verify(valueOperations, never()).setIfAbsent(anyString(), anyString(), anyLong(), eq(TimeUnit.DAYS));
+        verify(valueOperations, never()).setIfAbsent(anyString(), anyString(), anyLong(), eq(TimeUnit.MINUTES));
     }
 
     @Test
@@ -183,12 +183,12 @@ public class RiskDecisionServiceImplTest {
         RiskDecisionResponse resp = service.evaluate(req);
 
         assertEquals("PASS", resp.getDecision());
-        verify(valueOperations, never()).setIfAbsent(anyString(), anyString(), anyLong(), eq(TimeUnit.DAYS));
+        verify(valueOperations, never()).setIfAbsent(anyString(), anyString(), anyLong(), eq(TimeUnit.MINUTES));
     }
 
     @Test
     public void evaluate_shouldPass_whenDedupRedisReturnsNull() {
-        when(valueOperations.setIfAbsent(anyString(), anyString(), anyLong(), eq(TimeUnit.DAYS))).thenReturn(null);
+        when(valueOperations.setIfAbsent(anyString(), anyString(), anyLong(), eq(TimeUnit.MINUTES))).thenReturn(null);
         when(decisionEngine.evaluateRules(any(), any())).thenReturn(
                 RiskDecisionResponse.builder().decision("PASS").reasonCode("PASS").riskScore(6).build()
         );
@@ -257,6 +257,31 @@ public class RiskDecisionServiceImplTest {
 
         assertEquals("REJECT", resp.getDecision());
         assertEquals(RiskConstants.REASON_QUOTA_EXCEEDED, resp.getReasonCode());
+    }
+
+    @Test
+    public void evaluate_shouldBackfillHitRules_whenRuleReasonPresentButHitsEmpty() {
+        when(decisionEngine.evaluateRules(any(), any())).thenReturn(
+                RiskDecisionResponse.builder()
+                        .decision("REJECT")
+                        .reasonCode("DEVICE_BURST")
+                        .hitRules(Collections.emptyList())
+                        .riskScore(80)
+                        .build()
+        );
+
+        RiskDecisionResponse resp = service.evaluate(baseRequest());
+
+        assertEquals("REJECT", resp.getDecision());
+        assertNotNull(resp.getHitRules());
+        assertFalse(resp.getHitRules().isEmpty());
+        assertEquals("DEVICE_BURST", resp.getHitRules().get(0).getRuleName());
+
+        ArgumentCaptor<RiskDecisionPersistMessage> messageCaptor = ArgumentCaptor.forClass(RiskDecisionPersistMessage.class);
+        verify(persistProducer).send(eq("1001"), messageCaptor.capture());
+        String hitRulesJson = messageCaptor.getValue().getDecisionLog().getHitRules();
+        assertNotNull(hitRulesJson);
+        assertTrue(hitRulesJson.contains("DEVICE_BURST"));
     }
 
     @Test
@@ -789,7 +814,7 @@ public class RiskDecisionServiceImplTest {
         @SuppressWarnings("unchecked")
         ValueOperations<String, String> ops = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(ops);
-        when(ops.setIfAbsent(anyString(), anyString(), anyLong(), eq(TimeUnit.DAYS))).thenReturn(true);
+        when(ops.setIfAbsent(anyString(), anyString(), anyLong(), eq(TimeUnit.MINUTES))).thenReturn(true);
 
         RiskDecisionEngine localEngine = mock(RiskDecisionEngine.class);
         when(localEngine.evaluateRules(any(), any())).thenReturn(

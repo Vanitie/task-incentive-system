@@ -6,8 +6,10 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.whu.graduation.taskincentive.constant.CacheKeys;
 import com.whu.graduation.taskincentive.dao.entity.TaskConfig;
+   import com.whu.graduation.taskincentive.dao.entity.TaskConfigHistory;
 import com.whu.graduation.taskincentive.dao.entity.TaskStock;
 import com.whu.graduation.taskincentive.dao.mapper.TaskConfigMapper;
+import com.whu.graduation.taskincentive.dao.mapper.TaskConfigHistoryMapper;
 import com.whu.graduation.taskincentive.service.TaskConfigService;
 import com.whu.graduation.taskincentive.service.TaskStockService;
 import com.whu.graduation.taskincentive.dto.StairRuleConfig;
@@ -48,6 +50,9 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
 
     @Autowired
     private TaskStockService taskStockService;
+
+    @Autowired(required = false)
+    private TaskConfigHistoryMapper taskConfigHistoryMapper;
 
     private final StringRedisTemplate stringRedisTemplate;
     private static final String TASK_CONFIG_CREATE_TIME_PREFIX = "task_config_create_time:";
@@ -125,6 +130,7 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
             // 非限量任务清理库存表
             taskStockService.deleteById(taskConfig.getId());
         }
+        recordHistorySnapshot(taskConfig, "CREATE");
         System.out.println("[打点] 任务配置创建: taskId=" + taskConfig.getId() + ", 时间=" + System.currentTimeMillis());
         writeCacheAfterCommit(taskConfig);
         return true;
@@ -152,6 +158,7 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
         } else {
             taskStockService.deleteById(taskConfig.getId());
         }
+        recordHistorySnapshot(taskConfig, "UPDATE");
         System.out.println("[打点] 任务配置更新: taskId=" + taskConfig.getId() + ", 时间=" + System.currentTimeMillis());
         writeCacheAfterCommit(taskConfig);
         return true;
@@ -425,6 +432,20 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
     }
 
     @Override
+    public List<TaskConfigHistory> listHistoryByTaskId(Long taskId) {
+        if (taskId == null || taskConfigHistoryMapper == null) {
+            return java.util.Collections.emptyList();
+        }
+        try {
+            List<TaskConfigHistory> rows = taskConfigHistoryMapper.selectByTaskIdOrderByVersionDesc(taskId);
+            return rows == null ? java.util.Collections.emptyList() : rows;
+        } catch (Exception e) {
+            log.warn("query task config history failed, taskId={}, err={}", taskId, e.getMessage());
+            return java.util.Collections.emptyList();
+        }
+    }
+
+    @Override
     public int warmupAllTaskConfigs(int batchSize, long redisTtlSeconds) {
         return warmupAllTaskConfigs(batchSize, redisTtlSeconds, true);
     }
@@ -513,6 +534,38 @@ public class TaskConfigServiceImpl extends ServiceImpl<TaskConfigMapper, TaskCon
                     .version(0)
                     .build();
             taskStockService.save(stock);
+        }
+    }
+
+    private void recordHistorySnapshot(TaskConfig config, String changeType) {
+        if (config == null || config.getId() == null || taskConfigHistoryMapper == null) {
+            return;
+        }
+        try {
+            Integer maxVersion = taskConfigHistoryMapper.selectMaxVersionNo(config.getId());
+            int nextVersion = (maxVersion == null ? 0 : maxVersion) + 1;
+            TaskConfigHistory history = TaskConfigHistory.builder()
+                    .id(IdWorker.getId())
+                    .taskId(config.getId())
+                    .versionNo(nextVersion)
+                    .taskName(config.getTaskName())
+                    .taskType(config.getTaskType())
+                    .stockType(config.getStockType())
+                    .triggerEvent(config.getTriggerEvent())
+                    .ruleConfig(config.getRuleConfig())
+                    .rewardType(config.getRewardType())
+                    .rewardValue(config.getRewardValue())
+                    .totalStock(config.getTotalStock())
+                    .status(config.getStatus())
+                    .startTime(config.getStartTime())
+                    .endTime(config.getEndTime())
+                    .sourceUpdateTime(config.getUpdateTime())
+                    .changeType(changeType)
+                    .changedBy("system")
+                    .build();
+            taskConfigHistoryMapper.insert(history);
+        } catch (Exception e) {
+            log.warn("record task config history failed, taskId={}, err={}", config.getId(), e.getMessage());
         }
     }
 }

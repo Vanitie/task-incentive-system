@@ -83,13 +83,13 @@ class RiskDecisionPersistConsumerTest {
 
         when(redisTemplate.hasKey("mq:processed:r-ok")).thenReturn(false);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.setIfAbsent(eq("mq:processed:r-ok"), eq("1"), anyLong(), eq(TimeUnit.DAYS))).thenReturn(true);
+        when(valueOperations.setIfAbsent(eq("mq:processed:r-ok"), eq("1"), anyLong(), eq(TimeUnit.HOURS))).thenReturn(true);
 
         consumer.consume(message, acknowledgment);
 
         verify(decisionLogMapper).insert(any(RiskDecisionLog.class));
         verify(rewardFreezeRecordMapper).insert(any(RewardFreezeRecord.class));
-        verify(valueOperations).setIfAbsent(eq("mq:processed:r-ok"), eq("1"), eq(7L), eq(TimeUnit.DAYS));
+        verify(valueOperations).setIfAbsent(eq("mq:processed:r-ok"), eq("1"), eq(6L), eq(TimeUnit.HOURS));
         verify(acknowledgment).acknowledge();
     }
 

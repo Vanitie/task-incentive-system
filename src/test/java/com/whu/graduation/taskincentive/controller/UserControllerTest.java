@@ -1,6 +1,10 @@
 package com.whu.graduation.taskincentive.controller;
 
 import com.whu.graduation.taskincentive.dao.entity.User;
+import com.whu.graduation.taskincentive.dao.mapper.AdminOperationLogMapper;
+import com.whu.graduation.taskincentive.dao.mapper.UserActionLogMapper;
+import com.whu.graduation.taskincentive.dao.mapper.UserMapper;
+import com.whu.graduation.taskincentive.dao.mapper.UserTaskInstanceMapper;
 import com.whu.graduation.taskincentive.security.JwtUtil;
 import com.whu.graduation.taskincentive.dto.ApiResponse;
 import com.whu.graduation.taskincentive.dto.PageResult;
@@ -55,6 +59,21 @@ public class UserControllerTest {
 
     @MockBean
     private UserRewardRecordService userRewardRecordService;
+
+    @MockBean
+    private UserMapper userMapper;
+
+    @MockBean
+    private UserTaskInstanceMapper userTaskInstanceMapper;
+
+    @MockBean
+    private UserActionLogMapper userActionLogMapper;
+
+    @MockBean
+    private com.whu.graduation.taskincentive.service.UserActionLogService userActionLogService;
+
+    @MockBean
+    private AdminOperationLogMapper adminOperationLogMapper;
 
     @Test
     public void list_withoutToken_shouldReturnUnauthorized() throws Exception {

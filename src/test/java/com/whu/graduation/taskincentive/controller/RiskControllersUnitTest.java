@@ -127,10 +127,18 @@ class RiskControllersUnitTest {
         RiskDecisionLogController decisionLogController = new RiskDecisionLogController(decisionLogService);
         Page<RiskDecisionLog> page = new Page<>(1, 20);
         page.setRecords(Collections.singletonList(new RiskDecisionLog()));
-        when(decisionLogService.page(org.mockito.Mockito.any(), org.mockito.Mockito.any(), org.mockito.Mockito.any(), org.mockito.Mockito.any(), org.mockito.Mockito.any()))
+        when(decisionLogService.page(
+                org.mockito.Mockito.any(),
+                org.mockito.Mockito.any(),
+                org.mockito.Mockito.any(),
+                org.mockito.Mockito.any(),
+                org.mockito.Mockito.any(),
+                org.mockito.Mockito.any(),
+                org.mockito.Mockito.any(),
+                org.mockito.Mockito.any()))
                 .thenReturn(page);
 
-        ApiResponse<?> result = decisionLogController.list(1, 20, null, null, null, null);
+        ApiResponse<?> result = decisionLogController.list(1, 20, null, null, null, null, null, null, null);
         assertEquals(0, result.getCode());
     }
 }

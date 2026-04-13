@@ -9,5 +9,12 @@ import java.util.Date;
  * 风控决策日志服务
  */
 public interface RiskDecisionLogService {
-    Page<RiskDecisionLog> page(Page<RiskDecisionLog> page, Long taskId, String decision, Date start, Date end);
+    Page<RiskDecisionLog> page(Page<RiskDecisionLog> page,
+                               Long taskId,
+                               Long userId,
+                               String userName,
+                               String taskName,
+                               String decision,
+                               Date start,
+                               Date end);
 }

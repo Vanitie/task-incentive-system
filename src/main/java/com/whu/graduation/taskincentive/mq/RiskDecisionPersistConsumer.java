@@ -99,7 +99,7 @@ public class RiskDecisionPersistConsumer {
 
             if (messageId != null) {
                 try {
-                    redisTemplate.opsForValue().setIfAbsent(dedupKey, "1", CacheKeys.DEFAULT_DEDUP_TTL_DAYS, TimeUnit.DAYS);
+                    redisTemplate.opsForValue().setIfAbsent(dedupKey, "1", CacheKeys.DEFAULT_DEDUP_TTL_HOURS, TimeUnit.HOURS);
                 } catch (Exception e) {
                     log.warn("failed to set dedup key for messageId={}, err={}", messageId, e.getMessage());
                 }

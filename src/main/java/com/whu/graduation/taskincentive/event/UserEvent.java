@@ -16,7 +16,7 @@ public class UserEvent {
     private String eventId;
 
     private Long userId;
-    private String eventType; // USER_LEARN, USER_SIGN
+    private String eventType; // USER_LEARN, USER_SIGN, USER_REWARD_CLAIM
     private Integer value;    // 次数/分钟
     private LocalDateTime time;
 

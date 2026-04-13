@@ -120,13 +120,13 @@ class RewardConsumerTest {
         when(recordService.markProcessing("m-3")).thenReturn(true);
         when(recordService.markSuccess("m-3")).thenReturn(true);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.setIfAbsent(eq("mq:processed:m-3"), eq("1"), anyLong(), eq(TimeUnit.DAYS))).thenReturn(true);
+        when(valueOperations.setIfAbsent(eq("mq:processed:m-3"), eq("1"), anyLong(), eq(TimeUnit.HOURS))).thenReturn(true);
 
         consumer.consume("{\"messageId\":\"m-3\",\"userId\":5,\"reward\":{\"rewardType\":\"POINT\",\"amount\":8,\"taskId\":100}}");
 
         verify(rewardStrategy).grantReward(eq(5L), any(Reward.class));
         verify(recordService).markSuccess("m-3");
-        verify(valueOperations).setIfAbsent(eq("mq:processed:m-3"), eq("1"), eq(7L), eq(TimeUnit.DAYS));
+        verify(valueOperations).setIfAbsent(eq("mq:processed:m-3"), eq("1"), eq(6L), eq(TimeUnit.HOURS));
         verify(recordService, never()).save(any(UserRewardRecord.class));
     }
 

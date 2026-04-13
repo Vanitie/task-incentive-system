@@ -111,6 +111,24 @@ public class UserRewardController {
     }
 
     /**
+     * 统一奖励补偿预览（积分/徽章/实物 + 失败发奖）
+     */
+    @GetMapping("/replay/preview")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<Map<String, Object>> previewReplay(@RequestParam(defaultValue = "20") int sampleLimit) {
+        return ApiResponse.success(recordService.previewReplayDiff(sampleLimit));
+    }
+
+    /**
+     * 统一奖励补偿执行（积分/徽章/实物 + 失败发奖重试）
+     */
+    @PostMapping("/replay/execute")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<Map<String, Object>> executeReplay(@RequestParam(required = false) String rewardType) {
+        return ApiResponse.success(recordService.executeReplayCompensation(rewardType));
+    }
+
+    /**
      * 积分日志重放预览（仅查看差异，不落库）
      */
     @GetMapping("/replay/points/preview")

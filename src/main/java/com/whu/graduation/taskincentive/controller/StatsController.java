@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.whu.graduation.taskincentive.dto.ApiResponse;
 import com.whu.graduation.taskincentive.dto.BarChartData;
 import com.whu.graduation.taskincentive.dto.DailyStatItem;
+import com.whu.graduation.taskincentive.dto.LatestActivityItem;
 import com.whu.graduation.taskincentive.dto.ProgressDataItem;
 import com.whu.graduation.taskincentive.service.StatsService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -49,5 +50,13 @@ public class StatsController {
     public ApiResponse<Page<DailyStatItem>> pagedDailyStats(@RequestParam(defaultValue = "1") int page,
                                                @RequestParam(defaultValue = "10") int size){
         return ApiResponse.success(statsService.pagedDailyStats(page, size));
+    }
+
+    @Operation(summary = "首页最新动态流")
+    @GetMapping("/latest-activities")
+    @PreAuthorize("hasAnyRole('ADMIN','USER')")
+    public ApiResponse<List<LatestActivityItem>> latestActivities(
+            @RequestParam(defaultValue = "10") int limit) {
+        return ApiResponse.success(statsService.latestActivities(limit));
     }
 }
