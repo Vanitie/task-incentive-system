@@ -1,0 +1,153 @@
+@startuml
+' 4.2.1.1 包结构与模块划分：模块图（系统内部模块视角，区别于代码包图）
+' 说明：模块图关注“子系统/模块职责与调用关系”，不等同于 Java 包结构。
+
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam linetype ortho
+skinparam componentStyle rectangle
+left to right direction
+
+actor "普通用户\n(USER)" as USER
+actor "管理员\n(ADMIN)" as ADMIN
+
+rectangle "任务激励系统后台（单体应用）" as SYS {
+
+  rectangle "接入与权限模块" as MOD_ACCESS {
+    [认证与鉴权\nJWT + Spring Security] as AUTH
+    [统一响应/统一异常处理] as COMMON
+  }
+
+  rectangle "任务引擎模块（核心链路）" as MOD_ENGINE {
+    [事件接入\n同步/异步入口] as EVENT_IN
+    [幂等与去重\nmessageId/requestId] as IDEMP
+    [任务引擎编排\nTaskEngine] as ENGINE
+    [任务策略\n累计/连续/阶梯/窗口] as TASK_STRATEGY
+  }
+
+  rectangle "任务与用户任务模块" as MOD_TASK {
+    [任务配置管理\nTaskConfig] as TASK_CFG
+    [用户任务实例\nUserTaskInstance] as UTASK
+  }
+
+  rectangle "奖励与库存模块" as MOD_REWARD {
+    [奖励发放\n积分/徽章/实物] as REWARD
+    [奖励策略\nPoints/Badge/Item] as REWARD_STRATEGY
+    [库存管理\nTaskStock] as STOCK
+    [奖励记录\nUserRewardRecord] as REWARD_REC
+  }
+
+  rectangle "风控模块" as MOD_RISK {
+    [风控实时决策\n名单→规则→配额] as RISK_DECISION
+    [黑白名单] as RISK_LIST
+    [风控规则\n表达式/版本/发布回滚] as RISK_RULE
+    [风控配额\nALL/ID口径\n周期重置推算] as RISK_QUOTA
+    [风控决策日志] as RISK_LOG
+  }
+
+  rectangle "运营统计与看板模块" as MOD_DASH {
+    [风控看板\n总览/趋势] as RISK_DASH
+    [业务统计\n任务/用户/奖励] as STATS
+  }
+
+  rectangle "对账与补偿模块" as MOD_COMP {
+    [对账摘要\nmessageId质量] as RECON
+    [积分重放预览/执行\n覆盖写补偿] as REPLAY
+  }
+
+  rectangle "异步消息模块" as MOD_ASYNC {
+    [Kafka Producer/Consumer] as KAFKA
+    [决策日志持久化消费] as RISK_CONSUMER
+    [奖励异步处理消费(可选)] as REWARD_CONSUMER
+  }
+
+  rectangle "监控与压测支撑模块" as MOD_OBS {
+    [监控指标\nQPS/TP/CPU/内存/磁盘] as MON
+    [基准压测接口\nnoop] as NOOP
+    [压测脚本生成/管理] as PRESSURE
+  }
+}
+
+cloud "Redis\n去重/配额计数" as REDIS
+queue "Kafka\n消息总线" as KAFKA_BROKER
+component "Canal\nBinlog订阅" as CANAL
+
+database "MySQL\n业务数据库" as MYSQL
+
+' --- 参与者访问 ---
+USER --> EVENT_IN
+USER --> UTASK
+USER --> REWARD_REC
+USER --> RISK_DECISION
+
+ADMIN --> TASK_CFG
+ADMIN --> RISK_RULE
+ADMIN --> RISK_QUOTA
+ADMIN --> RISK_LIST
+ADMIN --> RISK_DASH
+ADMIN --> RECON
+ADMIN --> REPLAY
+ADMIN --> MON
+
+' --- 核心调用关系（模块间依赖） ---
+EVENT_IN --> AUTH
+EVENT_IN --> IDEMP
+IDEMP --> REDIS
+EVENT_IN --> ENGINE
+ENGINE --> TASK_CFG
+ENGINE --> UTASK
+ENGINE --> TASK_STRATEGY
+ENGINE --> RISK_DECISION
+ENGINE --> REWARD
+
+RISK_DECISION --> RISK_LIST
+RISK_DECISION --> RISK_RULE
+RISK_DECISION --> RISK_QUOTA
+RISK_QUOTA --> REDIS
+RISK_DECISION --> KAFKA
+
+REWARD --> REWARD_STRATEGY
+REWARD --> STOCK
+REWARD --> REWARD_REC
+
+KAFKA --> KAFKA_BROKER
+KAFKA_BROKER --> RISK_CONSUMER
+RISK_CONSUMER --> RISK_LOG
+RISK_LOG --> MYSQL
+
+TASK_CFG --> MYSQL
+UTASK --> MYSQL
+REWARD_REC --> MYSQL
+STOCK --> MYSQL
+RISK_RULE --> MYSQL
+RISK_QUOTA --> MYSQL
+RISK_LIST --> MYSQL
+RISK_DASH --> MYSQL
+STATS --> MYSQL
+RECON --> MYSQL
+REPLAY --> MYSQL
+
+MYSQL --> CANAL
+CANAL --> KAFKA_BROKER
+
+note right of MOD_ENGINE
+  本系统的“核心链路”集中在任务引擎模块：
+  事件接入→幂等去重→任务推进→风控决策→奖励发放。
+end note
+
+note right of MOD_RISK
+  风控模块特化点：
+  1) 黑白名单快速拦截/放行
+  2) 规则表达式与版本管理
+  3) 配额支持 ALL 与具体资源ID 两种口径
+  4) usedValue 走缓存计数，不落库
+end note
+
+note bottom of MOD_COMP
+  对账与补偿模块用于保障一致性：
+  - 对账摘要用于发现 messageId 缺失/重复等问题
+  - 积分可基于成功日志重放并覆盖写余额
+end note
+
+@enduml
+

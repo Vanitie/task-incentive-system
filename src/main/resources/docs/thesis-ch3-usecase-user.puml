@@ -1,0 +1,41 @@
+@startuml
+' 图3-1 普通用户（TOC）用例图
+left to right direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam ActorStyle awesome
+
+actor "普通用户\n（USER）" as USER
+
+rectangle "任务激励系统（前台能力）" as SYS {
+  usecase "提交行为事件\n（签到/学习/完成任务）" as UC_EVENT
+  usecase "查询个人任务列表" as UC_TASK_LIST
+  usecase "查询任务进度" as UC_TASK_PROGRESS
+  usecase "查询个人奖励记录" as UC_REWARD
+  usecase "查询个人徽章墙" as UC_BADGE
+
+  ' 核心链路在用户视角是一个业务能力
+  usecase "任务引擎处理\n（匹配任务/推进进度）" as UC_ENGINE
+  usecase "风控决策\n（黑白名单/规则/配额）" as UC_RISK
+  usecase "奖励发放\n（积分/徽章/实物）" as UC_GRANT
+  usecase "记录与链路追溯\n（requestId/日志）" as UC_TRACE
+}
+
+USER --> UC_EVENT
+USER --> UC_TASK_LIST
+USER --> UC_TASK_PROGRESS
+USER --> UC_REWARD
+USER --> UC_BADGE
+
+UC_EVENT ..> UC_ENGINE : <<include>>
+UC_ENGINE ..> UC_RISK : <<include>>
+UC_ENGINE ..> UC_GRANT : <<include>>
+UC_ENGINE ..> UC_TRACE : <<include>>
+
+note right of UC_EVENT
+事件参数包含：userId、eventType、eventTime、
+resourceType/resourceId 等。
+end note
+
+@enduml
+
