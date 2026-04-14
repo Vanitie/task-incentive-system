@@ -58,7 +58,7 @@ public class EngineChainSqlGenerator {
 
     private long idSeq = 2000000000000000000L;
 
-    private ScaleProfile scale = ScaleProfile.forProfile(DatasetProfile.ORIGINAL);
+    private ScaleProfile scale = ScaleProfile.forProfile(DatasetProfile.QPS_6000);
 
     private final List<UserSeed> users = new ArrayList<>();
     private final List<BadgeSeed> badges = new ArrayList<>();
@@ -1106,10 +1106,10 @@ public class EngineChainSqlGenerator {
         }
 
         String eventName = "USER_SIGN".equals(triggerEvent)
-            ? "签到"
-            : ("USER_LEARN".equals(triggerEvent)
-            ? "学习"
-            : ("USER_REWARD_CLAIM".equals(triggerEvent) ? "领奖" : "通用行为"));
+                ? "签到"
+                : ("USER_LEARN".equals(triggerEvent)
+                   ? "学习"
+                   : ("USER_REWARD_CLAIM".equals(triggerEvent) ? "领奖" : "通用行为"));
         String rewardName = "POINT".equals(rewardType) ? (rewardValue + "积分")
                 : ("BADGE".equals(rewardType) ? ("徽章编号" + rewardValue) : ("实物" + rewardValue + "件"));
         return String.format(Locale.ROOT, "%s%s任务-第%d天-%d号（奖励%s）", eventName, typeName, daySeq, index, rewardName);
@@ -1717,7 +1717,7 @@ public class EngineChainSqlGenerator {
             if (profile == DatasetProfile.QPS_4000) {
                 return new ScaleProfile("QPS_4000", 4000, estimateLabDau(4000), PROFILE_WINDOW_DAYS, 9, 12, 10, 20);
             }
-            // ORIGINAL keeps QPS-driven modeling, with target inferred from legacy user-pool scale.
+            // Default behavior: ORIGINAL is not enforced when no parameter is passed.
             return new ScaleProfile("ORIGINAL", 52, estimateLabDau(52), PROFILE_WINDOW_DAYS, 6, 9, 6, 14);
         }
 

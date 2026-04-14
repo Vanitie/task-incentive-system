@@ -330,13 +330,15 @@ public class TaskAnalyticsServiceImpl implements TaskAnalyticsService {
     @Override
     public TaskAnalyticsDTO.MetricOverview userTaskOverview(String startTime, String endTime, String taskType, String campaignId, String userLayer) {
         Instant[] range = resolveRange(startTime, endTime, 7);
+        int days = normalizeDaysBetween(range[0], range[1], 7);
         long accepted = countLong(baseCountSql("COUNT(1)", userLayer), baseParams(taskType, campaignId, range[0], range[1]));
-        long completed = countLong(baseCountSql("SUM(CASE WHEN uti.status=3 THEN 1 ELSE 0 END)", userLayer), baseParams(taskType, campaignId, range[0], range[1]));
-        long rewarded = countLong(baseRewardJoinCountSql(userLayer), baseParams(taskType, campaignId, range[0], range[1]));
-        double avgMinutes = queryDoubleOrZero(baseCountSql("AVG(CASE WHEN uti.status=3 THEN TIMESTAMPDIFF(MINUTE, uti.create_time, uti.update_time) END)", userLayer),
-                baseParams(taskType, campaignId, range[0], range[1]));
+        long completed = countLong(completedOverviewSql("COUNT(1)", userLayer, false), completedOverviewParams(taskType, campaignId, range[0], range[1], false));
+        long rewarded = countLong(completedOverviewSql("COUNT(1)", userLayer, true), completedOverviewParams(taskType, campaignId, range[0], range[1], true));
+        double avgMinutes = queryDoubleOrZero(completedOverviewSql("AVG(TIMESTAMPDIFF(MINUTE, uti.create_time, uti.update_time))", userLayer, false),
+                completedOverviewParams(taskType, campaignId, range[0], range[1], false));
 
         return TaskAnalyticsDTO.MetricOverview.builder()
+                .days(days)
                 .acceptedCount(accepted)
                 .completedCount(completed)
                 .rewardedCount(rewarded)
@@ -606,46 +608,13 @@ public class TaskAnalyticsServiceImpl implements TaskAnalyticsService {
                 .build();
     }
 
-    private TaskAnalyticsDTO.MetricOverview metricsInRange   (Long taskId, Instant start, Instant end, int days) {
+    private TaskAnalyticsDTO.MetricOverview metricsInRange(Long taskId, Instant start, Instant end, int days) {
         Date startDate = start == null ? null : Date.from(start);
         Date endDate = end == null ? null : Date.from(end);
-        var acceptedQw = Wrappers.lambdaQuery(UserTaskInstance.class)
-                .eq(UserTaskInstance::getTaskId, taskId)
-                .gt(UserTaskInstance::getStatus, 0);
-        var completedQw = Wrappers.lambdaQuery(UserTaskInstance.class)
-                .eq(UserTaskInstance::getTaskId, taskId)
-                .eq(UserTaskInstance::getStatus, 3);
-        var rewardedQw = Wrappers.lambdaQuery(UserRewardRecord.class)
-                .eq(UserRewardRecord::getTaskId, taskId)
-                .eq(UserRewardRecord::getGrantStatus, 2);
-        if (startDate != null) {
-            acceptedQw.ge(UserTaskInstance::getCreateTime, startDate);
-            completedQw.ge(UserTaskInstance::getCreateTime, startDate);
-            rewardedQw.ge(UserRewardRecord::getCreateTime, startDate);
-        }
-        if (endDate != null) {
-            acceptedQw.lt(UserTaskInstance::getCreateTime, endDate);
-            completedQw.lt(UserTaskInstance::getCreateTime, endDate);
-            rewardedQw.lt(UserRewardRecord::getCreateTime, endDate);
-        }
-
-        long accepted = userTaskInstanceMapper.selectCount(acceptedQw);
-        long completed = userTaskInstanceMapper.selectCount(completedQw);
-        long rewarded = userRewardRecordMapper.selectCount(rewardedQw);
-
-        QueryWrapper<UserTaskInstance> avgQw = new QueryWrapper<UserTaskInstance>()
-                .select("AVG(TIMESTAMPDIFF(MINUTE, create_time, update_time)) AS avg_minutes")
-                .eq("task_id", taskId)
-                .eq("status", 3);
-        if (startDate != null) {
-            avgQw.ge("create_time", startDate);
-        }
-        if (endDate != null) {
-            avgQw.lt("create_time", endDate);
-        }
-        List<Map<String, Object>> avgRows = userTaskInstanceMapper.selectMaps(avgQw);
-        Map<String, Object> firstRow = avgRows.isEmpty() ? null : avgRows.get(0);
-        double avgMinutes = firstRow == null ? 0D : parseDouble(firstRow.get("avg_minutes"));
+        long accepted = countOverviewAccepted(taskId, startDate, endDate);
+        long completed = countOverviewCompleted(taskId, startDate, endDate);
+        long rewarded = countOverviewRewarded(taskId, startDate, endDate);
+        double avgMinutes = queryOverviewAvgCompletionMinutes(taskId, startDate, endDate);
         return TaskAnalyticsDTO.MetricOverview.builder()
                 .days(days)
                 .acceptedCount(accepted)
@@ -805,6 +774,25 @@ public class TaskAnalyticsServiceImpl implements TaskAnalyticsService {
         return sb.toString();
     }
 
+    private String completedOverviewSql(String projection, String userLayer, boolean rewardedOnly) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT ").append(projection).append(" FROM user_task_instance uti ")
+                .append("JOIN task_config tc ON tc.id=uti.task_id ")
+                .append("JOIN user u ON u.id=uti.user_id ");
+        if (userLayer != null && !userLayer.isEmpty()) {
+            sb.append("LEFT JOIN (SELECT user_id, MAX(update_time) AS last_active FROM user_task_instance GROUP BY user_id) ua ON ua.user_id=u.id ");
+        }
+        sb.append("WHERE uti.status=3 AND uti.update_time>=? AND uti.update_time<? ")
+                .append("AND (? IS NULL OR ?='' OR tc.task_type=?) ")
+                .append("AND (? IS NULL OR ?='' OR tc.trigger_event=? OR CAST(tc.id AS CHAR)=?) ");
+        appendLayerClause(sb, userLayer);
+        if (rewardedOnly) {
+            sb.append("AND EXISTS (SELECT 1 FROM user_reward_record rr ")
+                    .append("WHERE rr.task_id=uti.task_id AND rr.user_id=uti.user_id AND rr.grant_status=2 AND rr.create_time<?) ");
+        }
+        return sb.toString();
+    }
+
     private void appendLayerClause(StringBuilder sb, String userLayer) {
         if (userLayer == null || userLayer.isEmpty()) {
             return;
@@ -834,6 +822,23 @@ public class TaskAnalyticsServiceImpl implements TaskAnalyticsService {
                 taskType, taskType, taskType,
                 campaignId, campaignId, campaignId, campaignId
         };
+    }
+
+    private Object[] completedOverviewParams(String taskType, String campaignId, Instant start, Instant end, boolean rewardedOnly) {
+        List<Object> params = new ArrayList<>();
+        params.add(ts(start));
+        params.add(ts(end));
+        params.add(taskType);
+        params.add(taskType);
+        params.add(taskType);
+        params.add(campaignId);
+        params.add(campaignId);
+        params.add(campaignId);
+        params.add(campaignId);
+        if (rewardedOnly) {
+            params.add(ts(end));
+        }
+        return params.toArray();
     }
 
     private Instant[] resolveRange(String startTime, String endTime, int defaultDays) {
@@ -886,6 +891,80 @@ public class TaskAnalyticsServiceImpl implements TaskAnalyticsService {
 
     private double round2(double v) {
         return Math.round(v * 100D) / 100D;
+    }
+
+    private int normalizeDaysBetween(Instant start, Instant end, int fallbackDays) {
+        if (start == null || end == null || !start.isBefore(end)) {
+            return Math.max(1, fallbackDays);
+        }
+        long days = ChronoUnit.DAYS.between(start, end);
+        return (int) Math.max(1L, days);
+    }
+
+    private long countOverviewAccepted(Long taskId, Date startDate, Date endDate) {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(1) FROM user_task_instance WHERE task_id=? AND status>0");
+        List<Object> params = new ArrayList<>();
+        params.add(taskId);
+        if (startDate != null) {
+            sql.append(" AND create_time>=?");
+            params.add(startDate);
+        }
+        if (endDate != null) {
+            sql.append(" AND create_time<?");
+            params.add(endDate);
+        }
+        return countLong(sql.toString(), params.toArray());
+    }
+
+    private long countOverviewCompleted(Long taskId, Date startDate, Date endDate) {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(1) FROM user_task_instance WHERE task_id=? AND status=3");
+        List<Object> params = new ArrayList<>();
+        params.add(taskId);
+        if (startDate != null) {
+            sql.append(" AND update_time>=?");
+            params.add(startDate);
+        }
+        if (endDate != null) {
+            sql.append(" AND update_time<?");
+            params.add(endDate);
+        }
+        return countLong(sql.toString(), params.toArray());
+    }
+
+    private long countOverviewRewarded(Long taskId, Date startDate, Date endDate) {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(1) FROM user_task_instance uti WHERE uti.task_id=? AND uti.status=3");
+        List<Object> params = new ArrayList<>();
+        params.add(taskId);
+        if (startDate != null) {
+            sql.append(" AND uti.update_time>=?");
+            params.add(startDate);
+        }
+        if (endDate != null) {
+            sql.append(" AND uti.update_time<?");
+            params.add(endDate);
+        }
+        sql.append(" AND EXISTS (SELECT 1 FROM user_reward_record rr WHERE rr.task_id=uti.task_id AND rr.user_id=uti.user_id AND rr.grant_status=2");
+        if (endDate != null) {
+            sql.append(" AND rr.create_time<?");
+            params.add(endDate);
+        }
+        sql.append(")");
+        return countLong(sql.toString(), params.toArray());
+    }
+
+    private double queryOverviewAvgCompletionMinutes(Long taskId, Date startDate, Date endDate) {
+        StringBuilder sql = new StringBuilder("SELECT AVG(TIMESTAMPDIFF(MINUTE, create_time, update_time)) FROM user_task_instance WHERE task_id=? AND status=3");
+        List<Object> params = new ArrayList<>();
+        params.add(taskId);
+        if (startDate != null) {
+            sql.append(" AND update_time>=?");
+            params.add(startDate);
+        }
+        if (endDate != null) {
+            sql.append(" AND update_time<?");
+            params.add(endDate);
+        }
+        return queryDoubleOrZero(sql.toString(), params.toArray());
     }
 
     private long parseLong(Object v) {
