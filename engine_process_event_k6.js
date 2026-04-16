@@ -487,6 +487,8 @@ export function handleSummary(data) {
   const metrics = data.metrics || {};
   const totalDurationSec = (data.state && data.state.testRunDurationMs ? data.state.testRunDurationMs : 0) / 1000;
   const effectiveLoadDurationSec = LOAD_DURATION_SEC > 0 ? LOAD_DURATION_SEC : totalDurationSec;
+  const summaryFinishedAt = new Date();
+  const summaryStartedAt = new Date(summaryFinishedAt.getTime() - (Math.max(totalDurationSec, 0) * 1000));
   const totalReqCount = getCount(metrics.load_http_reqs);
   const totalReqRate = effectiveLoadDurationSec > 0 ? totalReqCount / effectiveLoadDurationSec : 0;
   const bizSuccessCount = getCount(metrics.biz_success_reqs);
@@ -937,8 +939,16 @@ export function handleSummary(data) {
     mode: {
       test_mode: TEST_MODE,
       target_mode: TARGET_MODE,
+      data_scale: DATA_SCALE,
       base_url: BASE_URL,
       test_round: TEST_ROUND || null,
+      run_id: RUN_ID,
+    },
+    execution_window: {
+      started_at: summaryStartedAt.toISOString(),
+      finished_at: summaryFinishedAt.toISOString(),
+      total_duration_sec: roundNumber(totalDurationSec, 3),
+      effective_load_duration_sec: roundNumber(effectiveLoadDurationSec, 3),
     },
     resource_monitoring: {
       recommended_strategy: 'external_os_sampler',

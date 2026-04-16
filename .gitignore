@@ -33,6 +33,7 @@ build/
 .vscode/
 
 # k6 and external resource sampler outputs
+k6-resource-history-*.jsonl
 k6-resource-series-*.json
 k6-summary-observed-*.json
 *.resource-sampler.stop
