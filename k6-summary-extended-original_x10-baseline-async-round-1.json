@@ -1,0 +1,158 @@
+{
+  "analysis_version": "v6",
+  "mode": {
+    "test_mode": "baseline",
+    "target_mode": "async",
+    "data_scale": "original_x10",
+    "base_url": "http://192.168.50.10:8080",
+    "test_round": "1",
+    "run_id": "1776351520889-296230"
+  },
+  "execution_window": {
+    "started_at": "2026-04-16T14:48:40.885Z",
+    "finished_at": "2026-04-16T14:58:40.889Z",
+    "total_duration_sec": 600.003,
+    "effective_load_duration_sec": 600
+  },
+  "resource_monitoring": {
+    "recommended_strategy": "external_os_sampler",
+    "reason": "monitor endpoints can be rejected under load and monitor-side latency percentiles are not trusted"
+  },
+  "qps": {
+    "iterations_rate": 6000.028333333334,
+    "http_reqs_rate": 6000.028333333334,
+    "biz_success_qps": 6000.028333333334,
+    "biz_accepted_qps": 6000.028333333334,
+    "estimated_limit_qps": 6000.028333333334,
+    "extreme_qps": 6000.028333333334
+  },
+  "latency": {
+    "avg_ms": 4.463619826740286,
+    "p90_ms": 6.5191,
+    "p95_ms": 13.333459999999915,
+    "p99_ms": 35.7738799999997,
+    "max_ms": 471.2172
+  },
+  "totals": {
+    "total_requests": 3600017,
+    "biz_success_count": 3600017,
+    "biz_accepted_count": 3600017,
+    "biz_fail_count": 0,
+    "degraded_count": 0,
+    "status_503_count": 0,
+    "dropped_iterations": 0
+  },
+  "turning_point": null,
+  "endpoint_metrics": [],
+  "stage_metrics": [],
+  "window_metrics": [],
+  "charts": {
+          "endpoint_qps_bar": {
+            "chart_type": "bar",
+            "available": false,
+            "title": "接口吞吐对比",
+            "x_axis": [],
+            "series": [
+                {
+                  "name": "actual_qps",
+                  "unit": "req/s",
+                  "data": []
+                },
+                {
+                  "name": "biz_success_qps",
+                  "unit": "req/s",
+                  "data": []
+                }
+              ]
+          },
+          "endpoint_latency_bar": {
+            "chart_type": "bar",
+            "available": false,
+            "title": "接口延迟分位对比",
+            "x_axis": [],
+            "series": [
+                {
+                  "name": "p90_ms",
+                  "unit": "ms",
+                  "data": []
+                },
+                {
+                  "name": "p95_ms",
+                  "unit": "ms",
+                  "data": []
+                },
+                {
+                  "name": "p99_ms",
+                  "unit": "ms",
+                  "data": []
+                }
+              ]
+          },
+          "stage_qps_latency_line": {
+            "chart_type": "line",
+            "available": false,
+            "title": "阶段吞吐与尾延迟变化",
+            "x_axis": [],
+            "series": [
+                {
+                  "name": "achieved_qps",
+                  "unit": "req/s",
+                  "data": []
+                },
+                {
+                  "name": "p95_ms",
+                  "unit": "ms",
+                  "data": []
+                },
+                {
+                  "name": "p99_ms",
+                  "unit": "ms",
+                  "data": []
+                }
+              ]
+          },
+          "window_qps_latency_line": {
+            "chart_type": "line",
+            "available": false,
+            "title": "窗口吞吐与延迟变化",
+            "x_axis": [],
+            "series": [
+                {
+                  "name": "achieved_qps",
+                  "unit": "req/s",
+                  "data": []
+                },
+                {
+                  "name": "p95_ms",
+                  "unit": "ms",
+                  "data": []
+                },
+                {
+                  "name": "p99_ms",
+                  "unit": "ms",
+                  "data": []
+                },
+                {
+                  "name": "biz_success_rate",
+                  "unit": "ratio",
+                  "data": []
+                }
+              ]
+          }
+        },
+  "stable_segments": [],
+  "turning_rule": {
+            "window_sec": 10,
+            "min_injection_ratio": 0.95,
+            "min_biz_success_rate": 0.995,
+            "max_p95_ms": 500,
+            "extreme_qps_definition": "max achieved_qps among stable windows where injection_ratio>=min_injection_ratio, biz_success_rate>=min_biz_success_rate and p95<=max_p95_ms",
+            "extreme_qps_derived_from": "global_biz_success_qps_fallback",
+            "extreme_qps_stage_index": null,
+            "extreme_qps_window_index": null
+          },
+  "local_run_assessment": {
+            "is_local_optimistic": false,
+            "reasons": []
+          }
+}
