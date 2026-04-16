@@ -11,6 +11,7 @@ import { Counter, Rate, Trend } from 'k6/metrics';
 const TEST_MODE = __ENV.TEST_MODE || 'baseline';
 const TARGET_MODE = __ENV.TARGET_MODE || 'async'; // async|sync|direct|noop
 const DATA_SCALE = __ENV.DATA_SCALE || 'original'; // original|qps_4000|qps_6000
+const TEST_ROUND = __ENV.TEST_ROUND || '';
 const RATE = Number(__ENV.RATE || 200);
 const PRE_VUS = Number(__ENV.PRE_VUS || 800);
 const MAX_VUS = Number(__ENV.MAX_VUS || 12000);
@@ -338,6 +339,15 @@ function getMax(metric) {
 function sanitizeModePart(raw, fallback) {
   const value = typeof raw === 'string' && raw.trim() ? raw.trim().toLowerCase() : fallback;
   return value.replace(/[^a-z0-9_-]+/g, '_');
+}
+
+function buildRoundSuffix(rawRound) {
+  const normalized = sanitizeModePart(rawRound, '');
+  if (!normalized) return '';
+  if (normalized.indexOf('round-') === 0 || normalized.indexOf('round_') === 0) {
+    return `-${normalized}`;
+  }
+  return `-round-${normalized}`;
 }
 
 function buildAuthHeaders(extraHeaders = {}) {
@@ -928,6 +938,7 @@ export function handleSummary(data) {
       test_mode: TEST_MODE,
       target_mode: TARGET_MODE,
       base_url: BASE_URL,
+      test_round: TEST_ROUND || null,
     },
     resource_monitoring: {
       recommended_strategy: 'external_os_sampler',
@@ -976,8 +987,9 @@ export function handleSummary(data) {
   const summaryMode = sanitizeModePart(TEST_MODE, 'baseline');
   const summaryTarget = sanitizeModePart(TARGET_MODE, 'async');
   const summaryScale = sanitizeModePart(DATA_SCALE, 'original');
-  const summaryFile = `k6-summary-${summaryScale}-${summaryMode}-${summaryTarget}.json`;
-  const extendedSummaryFile = `k6-summary-extended-${summaryScale}-${summaryMode}-${summaryTarget}.json`;
+  const roundSuffix = buildRoundSuffix(TEST_ROUND);
+  const summaryFile = `k6-summary-${summaryScale}-${summaryMode}-${summaryTarget}${roundSuffix}.json`;
+  const extendedSummaryFile = `k6-summary-extended-${summaryScale}-${summaryMode}-${summaryTarget}${roundSuffix}.json`;
 
   return {
     [summaryFile]: JSON.stringify(data, null, 2),
