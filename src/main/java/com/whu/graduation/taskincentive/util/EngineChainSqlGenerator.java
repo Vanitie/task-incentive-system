@@ -35,6 +35,10 @@ public class EngineChainSqlGenerator {
     public enum DatasetProfile {
         ORIGINAL,
         QPS_4000,
+        ORIGINAL_X10,
+        /**
+         * Legacy alias for the current medium dataset that is approximately 10x ORIGINAL.
+         */
         QPS_6000,
         /**
          * Backward-compatible alias for ORIGINAL.
@@ -58,7 +62,7 @@ public class EngineChainSqlGenerator {
 
     private long idSeq = 2000000000000000000L;
 
-    private ScaleProfile scale = ScaleProfile.forProfile(DatasetProfile.QPS_6000);
+    private ScaleProfile scale = ScaleProfile.forProfile(DatasetProfile.ORIGINAL_X10);
 
     private final List<UserSeed> users = new ArrayList<>();
     private final List<BadgeSeed> badges = new ArrayList<>();
@@ -85,7 +89,7 @@ public class EngineChainSqlGenerator {
         String output = args.length > 0 ? args[0] : "engine_chain_demo_data.sql";
         String k6Output = args.length > 1 ? args[1] : DEFAULT_K6_FILE;
         String bearerToken = args.length > 2 ? args[2] : null;
-        DatasetProfile profile = args.length > 3 ? parseProfile(args[3]) : DatasetProfile.ORIGINAL;
+        DatasetProfile profile = args.length > 3 ? parseProfile(args[3]) : DatasetProfile.ORIGINAL_X10;
         new EngineChainSqlGenerator().generate(output, k6Output, bearerToken, profile);
         System.out.println("SQL generated: " + output);
         System.out.println("k6 template generated: " + k6Output);
@@ -256,8 +260,16 @@ public class EngineChainSqlGenerator {
         if ("2".equals(normalized) || "4000".equals(normalized) || "QPS4000".equals(normalized)) {
             return DatasetProfile.QPS_4000;
         }
-        if ("3".equals(normalized) || "6000".equals(normalized) || "QPS6000".equals(normalized)) {
-            return DatasetProfile.QPS_6000;
+        if ("3".equals(normalized)
+                || "6000".equals(normalized)
+                || "QPS6000".equals(normalized)
+                || "QPS_6000".equals(normalized)
+                || "ORIGINAL_X10".equals(normalized)
+                || "ORIGINAL10X".equals(normalized)
+                || "X10".equals(normalized)
+                || "MEDIUM_10X".equals(normalized)
+                || "MEDIUM10X".equals(normalized)) {
+            return DatasetProfile.ORIGINAL_X10;
         }
         if ("SMALL".equals(normalized) || "SMALL_TEST".equals(normalized)) {
             return DatasetProfile.ORIGINAL;
@@ -1711,13 +1723,12 @@ public class EngineChainSqlGenerator {
         }
 
         static ScaleProfile forProfile(DatasetProfile profile) {
-            if (profile == DatasetProfile.QPS_6000) {
-                return new ScaleProfile("QPS_6000", 6000, estimateLabDau(6000), PROFILE_WINDOW_DAYS, 11, 14, 12, 24);
+            if (profile == DatasetProfile.ORIGINAL_X10 || profile == DatasetProfile.QPS_6000) {
+                return new ScaleProfile("ORIGINAL_X10", 520, estimateLabDau(520), PROFILE_WINDOW_DAYS, 6, 9, 6, 14);
             }
             if (profile == DatasetProfile.QPS_4000) {
                 return new ScaleProfile("QPS_4000", 4000, estimateLabDau(4000), PROFILE_WINDOW_DAYS, 9, 12, 10, 20);
             }
-            // Default behavior: ORIGINAL is not enforced when no parameter is passed.
             return new ScaleProfile("ORIGINAL", 52, estimateLabDau(52), PROFILE_WINDOW_DAYS, 6, 9, 6, 14);
         }
 

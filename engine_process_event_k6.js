@@ -10,7 +10,7 @@ import { Counter, Rate, Trend } from 'k6/metrics';
 
 const TEST_MODE = __ENV.TEST_MODE || 'baseline';
 const TARGET_MODE = __ENV.TARGET_MODE || 'async'; // async|sync|direct|noop
-const DATA_SCALE = __ENV.DATA_SCALE || 'original'; // original|qps_4000|qps_6000
+const DATA_SCALE = __ENV.DATA_SCALE || 'original'; // original|qps_4000|original_x10|qps_6000(legacy alias)
 const TEST_ROUND = __ENV.TEST_ROUND || '';
 const RATE = Number(__ENV.RATE || 200);
 const PRE_VUS = Number(__ENV.PRE_VUS || 800);
