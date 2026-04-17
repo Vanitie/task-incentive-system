@@ -62,7 +62,7 @@ public class EngineChainSqlGenerator {
 
     private long idSeq = 2000000000000000000L;
 
-    private ScaleProfile scale = ScaleProfile.forProfile(DatasetProfile.ORIGINAL_X10);
+    private ScaleProfile scale = ScaleProfile.forProfile(DatasetProfile.ORIGINAL);
 
     private final List<UserSeed> users = new ArrayList<>();
     private final List<BadgeSeed> badges = new ArrayList<>();
@@ -89,7 +89,7 @@ public class EngineChainSqlGenerator {
         String output = args.length > 0 ? args[0] : "engine_chain_demo_data.sql";
         String k6Output = args.length > 1 ? args[1] : DEFAULT_K6_FILE;
         String bearerToken = args.length > 2 ? args[2] : null;
-        DatasetProfile profile = args.length > 3 ? parseProfile(args[3]) : DatasetProfile.ORIGINAL_X10;
+        DatasetProfile profile = args.length > 3 ? parseProfile(args[3]) : DatasetProfile.ORIGINAL;
         new EngineChainSqlGenerator().generate(output, k6Output, bearerToken, profile);
         System.out.println("SQL generated: " + output);
         System.out.println("k6 template generated: " + k6Output);

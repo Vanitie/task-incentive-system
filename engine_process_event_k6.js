@@ -200,7 +200,7 @@ const BEARER_TOKEN = __ENV.BEARER_TOKEN || '';
 const DUPLICATE_RATE = Number(__ENV.DUPLICATE_RATE || 0.1);
 const NO_MSG_ID_RATE = Number(__ENV.NO_MSG_ID_RATE || 0.03);
 const USER_ID_MIN = BigInt(__ENV.USER_ID_MIN || '2000000000000000000');
-const USER_ID_MAX = BigInt(__ENV.USER_ID_MAX || '2000000000000396339');
+const USER_ID_MAX = BigInt(__ENV.USER_ID_MAX || '2000000000000010234');
 const USER_ID_SPAN = USER_ID_MAX >= USER_ID_MIN ? (USER_ID_MAX - USER_ID_MIN + 1n) : 1n;
 const EVENT_TYPES = ['USER_LEARN', 'USER_SIGN'];
 const DUP_POOL = Array.from({ length: 200 }, (_, i) => `dup-${i + 1}`);
