@@ -6,12 +6,12 @@
     "data_scale": "original_x10",
     "base_url": "http://192.168.50.10:8080",
     "test_round": "1",
-    "run_id": "1776349829111-778225"
+    "run_id": "1776411679075-789966"
   },
   "execution_window": {
-    "started_at": "2026-04-16T14:27:29.090Z",
-    "finished_at": "2026-04-16T14:30:29.111Z",
-    "total_duration_sec": 180.02,
+    "started_at": "2026-04-17T07:38:19.072Z",
+    "finished_at": "2026-04-17T07:41:19.075Z",
+    "total_duration_sec": 180.002,
     "effective_load_duration_sec": 180
   },
   "resource_monitoring": {
@@ -19,24 +19,24 @@
     "reason": "monitor endpoints can be rejected under load and monitor-side latency percentiles are not trusted"
   },
   "qps": {
-    "iterations_rate": 7299.172222222222,
-    "http_reqs_rate": 7299.172222222222,
-    "biz_success_qps": 7299.172222222222,
-    "biz_accepted_qps": 7299.172222222222,
-    "estimated_limit_qps": 7299.172222222222,
-    "extreme_qps": 7299.172222222222
+    "iterations_rate": 4599.544444444445,
+    "http_reqs_rate": 4599.544444444445,
+    "biz_success_qps": 4599.544444444445,
+    "biz_accepted_qps": 4599.544444444445,
+    "estimated_limit_qps": 4599.544444444445,
+    "extreme_qps": 4599.544444444445
   },
   "latency": {
-    "avg_ms": 20.20749505705045,
-    "p90_ms": 39.5521,
-    "p95_ms": 48.5356,
-    "p99_ms": 69.38725,
-    "max_ms": 156.1537
+    "avg_ms": 3.287576244748974,
+    "p90_ms": 4.979930000000005,
+    "p95_ms": 9.3754,
+    "p99_ms": 25.014348999999985,
+    "max_ms": 87.2722
   },
   "totals": {
-    "total_requests": 1313851,
-    "biz_success_count": 1313851,
-    "biz_accepted_count": 1313851,
+    "total_requests": 827918,
+    "biz_success_count": 827918,
+    "biz_accepted_count": 827918,
     "biz_fail_count": 0,
     "degraded_count": 0,
     "status_503_count": 0,

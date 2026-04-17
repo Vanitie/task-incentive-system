@@ -6,12 +6,12 @@
     "data_scale": "original_x10",
     "base_url": "http://192.168.50.10:8080",
     "test_round": "1",
-    "run_id": "1776352151741-616862"
+    "run_id": "1776412986043-630910"
   },
   "execution_window": {
-    "started_at": "2026-04-16T14:59:11.544Z",
-    "finished_at": "2026-04-16T15:09:11.741Z",
-    "total_duration_sec": 600.196,
+    "started_at": "2026-04-17T07:53:05.940Z",
+    "finished_at": "2026-04-17T08:03:06.046Z",
+    "total_duration_sec": 600.106,
     "effective_load_duration_sec": 600
   },
   "resource_monitoring": {
@@ -19,28 +19,28 @@
     "reason": "monitor endpoints can be rejected under load and monitor-side latency percentiles are not trusted"
   },
   "qps": {
-    "iterations_rate": 5981.161666666667,
-    "http_reqs_rate": 5981.161666666667,
-    "biz_success_qps": 5981.161666666667,
-    "biz_accepted_qps": 5981.161666666667,
-    "estimated_limit_qps": 5981.161666666667,
-    "extreme_qps": 5981.161666666667
+    "iterations_rate": 3996.6583333333333,
+    "http_reqs_rate": 3996.6583333333333,
+    "biz_success_qps": 3996.6583333333333,
+    "biz_accepted_qps": 3996.6583333333333,
+    "estimated_limit_qps": 3996.6583333333333,
+    "extreme_qps": 3996.6583333333333
   },
   "latency": {
-    "avg_ms": 27.608695013591525,
-    "p90_ms": 30.7778,
-    "p95_ms": 56.21665999999992,
-    "p99_ms": 741.5819720000001,
-    "max_ms": 1614.8626
+    "avg_ms": 20.204863158805324,
+    "p90_ms": 25.916760000000007,
+    "p95_ms": 42.10365999999996,
+    "p99_ms": 448.1003260000001,
+    "max_ms": 1295.1358
   },
   "totals": {
-    "total_requests": 3588697,
-    "biz_success_count": 3588697,
-    "biz_accepted_count": 3588697,
+    "total_requests": 2397995,
+    "biz_success_count": 2397995,
+    "biz_accepted_count": 2397995,
     "biz_fail_count": 0,
     "degraded_count": 0,
     "status_503_count": 0,
-    "dropped_iterations": 11319
+    "dropped_iterations": 2008
   },
   "turning_point": null,
   "endpoint_metrics": [],
