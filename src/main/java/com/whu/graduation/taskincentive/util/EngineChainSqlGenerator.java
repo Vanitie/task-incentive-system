@@ -52,8 +52,8 @@ public class EngineChainSqlGenerator {
     private static final String DEFAULT_K6_FILE = "engine_process_event_k6.js";
     private static final String MANAGED_SQL_PREFIX = "engine_chain_demo_data";
     private static final Pattern K6_BEARER_TOKEN_LINE = Pattern.compile("const\\s+BEARER_TOKEN\\s*=\\s*__ENV\\.BEARER_TOKEN\\s*\\|\\|\\s*'[^']*';");
-    private static final Pattern K6_USER_ID_START_LINE = Pattern.compile("const\\s+USER_ID_START\\s*=\\s*__ENV\\.USER_ID_START\\s*\\|\\|\\s*'[^']*';");
-    private static final Pattern K6_USER_ID_END_LINE = Pattern.compile("const\\s+USER_ID_END\\s*=\\s*__ENV\\.USER_ID_END\\s*\\|\\|\\s*'[^']*';");
+    private static final Pattern K6_USER_ID_MIN_LINE = Pattern.compile("const\\s+USER_ID_MIN\\s*=\\s*BigInt\\(__ENV\\.USER_ID_MIN\\s*\\|\\|\\s*'[^']*'\\);");
+    private static final Pattern K6_USER_ID_MAX_LINE = Pattern.compile("const\\s+USER_ID_MAX\\s*=\\s*BigInt\\(__ENV\\.USER_ID_MAX\\s*\\|\\|\\s*'[^']*'\\);");
 
     private static final int PROFILE_WINDOW_DAYS = 14;
     private static final int SQL_INSERT_BATCH_SIZE = 500;
@@ -418,20 +418,17 @@ public class EngineChainSqlGenerator {
     }
 
     private void buildTasks(LocalDate start, LocalDate end) {
-        String[] taskTypes = {"ACCUMULATE", "CONTINUOUS", "STAIR", "WINDOW_ACCUMULATE"};
-        String[] rewardTypes = {"POINT", "BADGE", "ITEM"};
-
         LocalDate d = start;
         int daySeq = 1;
         while (!d.isAfter(end)) {
             int n = rand(scale.taskMinPerDay, scale.taskMaxPerDay);
             for (int i = 0; i < n; i++) {
                 long id = nextId();
-                String taskType = taskTypes[R.nextInt(taskTypes.length)];
+                String taskType = chooseTaskType();
                 String triggerEvent = chooseTriggerEvent(taskType);
-                String stockType = R.nextDouble() < 0.30 ? "LIMITED" : "UNLIMITED";
+                String stockType = R.nextDouble() < 0.15 ? "LIMITED" : "UNLIMITED";
 
-                String rewardType = rewardTypes[R.nextInt(rewardTypes.length)];
+                String rewardType = chooseRewardType();
                 int rewardValue = chooseRewardValue(rewardType);
 
                 String ruleConfig = buildRuleConfig(taskType);
@@ -535,13 +532,13 @@ public class EngineChainSqlGenerator {
         }
 
         // 兜底，避免极端参数导致实例量明显不足。
-        int targetInstances = scale.targetInstanceCount(users.size());
         int roleUserCount = 0;
         for (UserSeed user : users) {
             if ("ROLE_USER".equals(user.roles)) {
                 roleUserCount++;
             }
         }
+        int targetInstances = scale.targetInstanceCount(roleUserCount);
         long maxUniquePairs = (long) roleUserCount * (long) tasks.size();
         int maxAttempts = (int) Math.min(Integer.MAX_VALUE, Math.max(1000L, maxUniquePairs * 2L));
         int attempts = 0;
@@ -816,8 +813,17 @@ public class EngineChainSqlGenerator {
 
     private void writeSql(String outputFile) throws IOException {
         try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(Path.of(outputFile), UTF8))) {
+            UserIdSegments segments = buildUserIdSegments();
             out.println("-- engine-chain demo data generated at " + LocalDateTime.now().format(DT));
             out.println("-- profile=" + scale.profileName + ", targetQps=" + scale.targetQps + ", targetDau=" + scale.targetDau + ", registerDays=" + scale.registrationDays);
+            if (segments != null) {
+                out.println(String.format(Locale.ROOT,
+                        "-- benchmark user segments: warmup=[%d,%d], sync=[%d,%d], async=[%d,%d], direct=[%d,%d]",
+                        segments.warmupStart, segments.warmupEnd,
+                        segments.syncStart, segments.syncEnd,
+                        segments.asyncStart, segments.asyncEnd,
+                        segments.directStart, segments.directEnd));
+            }
             out.println("-- generated rows: user=" + users.size()
                     + ", task=" + tasks.size()
                     + ", task_config_history=" + taskConfigHistories.size()
@@ -1009,19 +1015,8 @@ public class EngineChainSqlGenerator {
     }
 
     private void writeK6Template(String outputFile, String bearerToken) throws IOException {
-        Long userIdStart = null;
-        Long userIdEnd = null;
-        for (UserSeed u : users) {
-            if ("ROLE_USER".equals(u.roles)) {
-                if (userIdStart == null || u.id < userIdStart) {
-                    userIdStart = u.id;
-                }
-                if (userIdEnd == null || u.id > userIdEnd) {
-                    userIdEnd = u.id;
-                }
-            }
-        }
-        if (userIdStart == null || userIdEnd == null) {
+        UserIdSegments segments = buildUserIdSegments();
+        if (segments == null) {
             throw new IllegalStateException("no ROLE_USER users generated for k6 template bounds");
         }
 
@@ -1030,8 +1025,14 @@ public class EngineChainSqlGenerator {
                 : bearerToken.trim();
 
         String scriptTemplate = loadK6TemplateScript();
-        String script = injectK6TemplateValues(scriptTemplate, fallbackToken, userIdStart, userIdEnd);
+        String script = injectK6TemplateValues(scriptTemplate, fallbackToken, segments.minUserId, segments.maxUserId);
         try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(Path.of(outputFile), UTF8))) {
+            out.printf(Locale.ROOT,
+                    "// benchmark user segments: warmup=[%d,%d], sync=[%d,%d], async=[%d,%d], direct=[%d,%d]%n",
+                    segments.warmupStart, segments.warmupEnd,
+                    segments.syncStart, segments.syncEnd,
+                    segments.asyncStart, segments.asyncEnd,
+                    segments.directStart, segments.directEnd);
             out.print(script);
         }
     }
@@ -1047,14 +1048,48 @@ public class EngineChainSqlGenerator {
     private String injectK6TemplateValues(String scriptTemplate, String fallbackToken, long userIdStart, long userIdEnd) {
         String withTokenPlaceholder = K6_BEARER_TOKEN_LINE.matcher(scriptTemplate)
                 .replaceFirst("const BEARER_TOKEN = __ENV.BEARER_TOKEN || '__FALLBACK_TOKEN__';");
-        String withUserStartPlaceholder = K6_USER_ID_START_LINE.matcher(withTokenPlaceholder)
-                .replaceFirst("const USER_ID_START = __ENV.USER_ID_START || '__USER_ID_START__';");
-        String withUserEndPlaceholder = K6_USER_ID_END_LINE.matcher(withUserStartPlaceholder)
-                .replaceFirst("const USER_ID_END = __ENV.USER_ID_END || '__USER_ID_END__';");
-        return withUserEndPlaceholder
+        String withUserMinPlaceholder = K6_USER_ID_MIN_LINE.matcher(withTokenPlaceholder)
+                .replaceFirst("const USER_ID_MIN = BigInt(__ENV.USER_ID_MIN || '__USER_ID_MIN__');");
+        String withUserMaxPlaceholder = K6_USER_ID_MAX_LINE.matcher(withUserMinPlaceholder)
+                .replaceFirst("const USER_ID_MAX = BigInt(__ENV.USER_ID_MAX || '__USER_ID_MAX__');");
+        return withUserMaxPlaceholder
                 .replace("__FALLBACK_TOKEN__", escJs(fallbackToken))
-                .replace("__USER_ID_START__", String.valueOf(userIdStart))
-                .replace("__USER_ID_END__", String.valueOf(userIdEnd));
+                .replace("__USER_ID_MIN__", String.valueOf(userIdStart))
+                .replace("__USER_ID_MAX__", String.valueOf(userIdEnd));
+    }
+
+    private UserIdSegments buildUserIdSegments() {
+        Long userIdStart = null;
+        Long userIdEnd = null;
+        for (UserSeed u : users) {
+            if (!"ROLE_USER".equals(u.roles)) {
+                continue;
+            }
+            if (userIdStart == null || u.id < userIdStart) {
+                userIdStart = u.id;
+            }
+            if (userIdEnd == null || u.id > userIdEnd) {
+                userIdEnd = u.id;
+            }
+        }
+        if (userIdStart == null || userIdEnd == null || userIdEnd < userIdStart) {
+            return null;
+        }
+
+        long totalUsers = userIdEnd - userIdStart + 1L;
+        long warmupStart = userIdStart;
+        long warmupEnd = userIdStart + (totalUsers * 1 / 4) - 1L;
+        long syncStart = warmupEnd + 1L;
+        long syncEnd = userIdStart + (totalUsers * 2 / 4) - 1L;
+        long asyncStart = syncEnd + 1L;
+        long asyncEnd = userIdStart + (totalUsers * 3 / 4) - 1L;
+        long directStart = asyncEnd + 1L;
+        long directEnd = userIdEnd;
+        return new UserIdSegments(userIdStart, userIdEnd,
+            warmupStart, warmupEnd,
+            syncStart, syncEnd,
+            asyncStart, asyncEnd,
+            directStart, directEnd);
     }
 
     private static String escJs(String s) {
@@ -1072,13 +1107,38 @@ public class EngineChainSqlGenerator {
             return "USER_LEARN";
         }
         int dice = rand(1, 100);
-        if (dice <= 45) {
+        if (dice <= 35) {
             return "USER_LEARN";
         }
-        if (dice <= 80) {
+        if (dice <= 65) {
             return "USER_REWARD_CLAIM";
         }
         return "OTHER";
+    }
+
+    private String chooseTaskType() {
+        int dice = rand(1, 100);
+        if (dice <= 42) {
+            return "ACCUMULATE";
+        }
+        if (dice <= 67) {
+            return "CONTINUOUS";
+        }
+        if (dice <= 90) {
+            return "WINDOW_ACCUMULATE";
+        }
+        return "STAIR";
+    }
+
+    private String chooseRewardType() {
+        int dice = rand(1, 100);
+        if (dice <= 68) {
+            return "POINT";
+        }
+        if (dice <= 88) {
+            return "BADGE";
+        }
+        return "ITEM";
     }
 
     private int chooseRewardValue(String rewardType) {
@@ -1139,9 +1199,9 @@ public class EngineChainSqlGenerator {
 
     private int chooseInstanceStatus(LocalDate instanceDate) {
         int weeklyIndex = Math.floorMod((int) instanceDate.toEpochDay(), 7);
-        double[] completeRates = {0.11, 0.14, 0.18, 0.13, 0.19, 0.22, 0.10};
-        double[] inProgressRates = {0.30, 0.29, 0.27, 0.30, 0.26, 0.24, 0.31};
-        double[] cancelRates = {0.06, 0.05, 0.04, 0.05, 0.04, 0.03, 0.07};
+        double[] completeRates = {0.40, 0.42, 0.45, 0.41, 0.44, 0.46, 0.38};
+        double[] inProgressRates = {0.18, 0.19, 0.17, 0.18, 0.17, 0.16, 0.19};
+        double[] cancelRates = {0.10, 0.09, 0.08, 0.09, 0.08, 0.07, 0.11};
 
         double completeRate = completeRates[weeklyIndex];
         double inProgressRate = inProgressRates[weeklyIndex];
@@ -1724,12 +1784,12 @@ public class EngineChainSqlGenerator {
 
         static ScaleProfile forProfile(DatasetProfile profile) {
             if (profile == DatasetProfile.ORIGINAL_X10 || profile == DatasetProfile.QPS_6000) {
-                return new ScaleProfile("ORIGINAL_X10", 520, estimateLabDau(520), PROFILE_WINDOW_DAYS, 6, 9, 6, 14);
+                return new ScaleProfile("ORIGINAL_X10", 520, estimateLabDau(52) * 40, PROFILE_WINDOW_DAYS, 6, 9, 6, 14);
             }
             if (profile == DatasetProfile.QPS_4000) {
-                return new ScaleProfile("QPS_4000", 4000, estimateLabDau(4000), PROFILE_WINDOW_DAYS, 9, 12, 10, 20);
+                return new ScaleProfile("QPS_4000", 4000, estimateLabDau(4000), PROFILE_WINDOW_DAYS, 8, 10, 6, 10);
             }
-            return new ScaleProfile("ORIGINAL", 52, estimateLabDau(52), PROFILE_WINDOW_DAYS, 6, 9, 6, 14);
+            return new ScaleProfile("ORIGINAL", 52, estimateLabDau(52) * 4, PROFILE_WINDOW_DAYS, 6, 9, 6, 14);
         }
 
         int targetRegisteredUsers() {
@@ -1748,6 +1808,36 @@ public class EngineChainSqlGenerator {
             // NOTE: removed the historical "single machine scale-down" factor.
             // The returned DAU now corresponds directly to the configured targetQps.
             return Math.max(200, (int) Math.round(reqPerDayAvg / avgEventsPerDau));
+        }
+    }
+
+    static class UserIdSegments {
+        long minUserId;
+        long maxUserId;
+        long warmupStart;
+        long warmupEnd;
+        long syncStart;
+        long syncEnd;
+        long asyncStart;
+        long asyncEnd;
+        long directStart;
+        long directEnd;
+
+        UserIdSegments(long minUserId, long maxUserId,
+                   long warmupStart, long warmupEnd,
+                       long syncStart, long syncEnd,
+                       long asyncStart, long asyncEnd,
+                       long directStart, long directEnd) {
+            this.minUserId = minUserId;
+            this.maxUserId = maxUserId;
+            this.warmupStart = warmupStart;
+            this.warmupEnd = warmupEnd;
+            this.syncStart = syncStart;
+            this.syncEnd = syncEnd;
+            this.asyncStart = asyncStart;
+            this.asyncEnd = asyncEnd;
+            this.directStart = directStart;
+            this.directEnd = directEnd;
         }
     }
 }

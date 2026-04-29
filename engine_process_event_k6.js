@@ -1,3 +1,4 @@
+// benchmark user segments: warmup=[2000000000000000000,2000000000000010288], sync=[2000000000000010289,2000000000000020577], async=[2000000000000020578,2000000000000030866], direct=[2000000000000030867,2000000000000041156]
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import exec from 'k6/execution';
@@ -6,7 +7,8 @@ import { Counter, Rate, Trend } from 'k6/metrics';
 // modes:
 // 1) TEST_MODE=baseline  -> single endpoint, constant arrival rate
 // 2) TEST_MODE=compare   -> async/sync compare, each takes half rate
-// 3) TEST_MODE=max       -> ramping arrival rate to find limit QPS
+// 3) TEST_MODE=warmup    -> single endpoint warm-up, reserved warmup user range
+// 4) TEST_MODE=max       -> ramping arrival rate to find limit QPS
 
 const TEST_MODE = __ENV.TEST_MODE || 'baseline';
 const TARGET_MODE = __ENV.TARGET_MODE || 'async'; // async|sync|direct|noop
@@ -159,6 +161,17 @@ function buildScenarios() {
         maxVUs: MAX_VUS,
       },
     };
+  } else if (TEST_MODE === 'warmup') {
+    scenarios = {
+      warmup_single: {
+        executor: 'constant-arrival-rate',
+        rate: RATE,
+        timeUnit: '1s',
+        duration: DURATION,
+        preAllocatedVUs: PRE_VUS,
+        maxVUs: MAX_VUS,
+      },
+    };
   } else if (TEST_MODE === 'max') {
     scenarios = {
       max_probe: {
@@ -200,8 +213,8 @@ const BEARER_TOKEN = __ENV.BEARER_TOKEN || '';
 const DUPLICATE_RATE = Number(__ENV.DUPLICATE_RATE || 0.1);
 const NO_MSG_ID_RATE = Number(__ENV.NO_MSG_ID_RATE || 0.03);
 const USER_ID_MIN = BigInt(__ENV.USER_ID_MIN || '2000000000000000000');
-const USER_ID_MAX = BigInt(__ENV.USER_ID_MAX || '2000000000000010234');
-const USER_ID_SPAN = USER_ID_MAX >= USER_ID_MIN ? (USER_ID_MAX - USER_ID_MIN + 1n) : 1n;
+const USER_ID_MAX = BigInt(__ENV.USER_ID_MAX || '2000000000000041156');
+const USER_ID_SEGMENT_MODE = (__ENV.USER_ID_SEGMENT_MODE || 'auto').toLowerCase();
 const EVENT_TYPES = ['USER_LEARN', 'USER_SIGN'];
 const DUP_POOL = Array.from({ length: 200 }, (_, i) => `dup-${i + 1}`);
 const ASYNC_ENDPOINT = '/api/engine/process-event-async';
@@ -228,6 +241,28 @@ function endpointTypeForScenario() {
     return 'direct';
   }
   return 'async';
+}
+
+function dataSegmentForRequest(endpointType) {
+  if (TEST_MODE === 'warmup') {
+    return 'warmup';
+  }
+  if (USER_ID_SEGMENT_MODE === 'all' || USER_ID_SEGMENT_MODE === 'none') {
+    return 'all';
+  }
+  if (USER_ID_SEGMENT_MODE === 'warmup'
+    || USER_ID_SEGMENT_MODE === 'sync'
+    || USER_ID_SEGMENT_MODE === 'async'
+    || USER_ID_SEGMENT_MODE === 'direct') {
+    return USER_ID_SEGMENT_MODE;
+  }
+  if (USER_ID_SEGMENT_MODE !== 'auto') {
+    return 'all';
+  }
+  if (endpointType === 'sync' || endpointType === 'async' || endpointType === 'direct') {
+    return endpointType;
+  }
+  return 'all';
 }
 
 function isDirectBizSuccess(res, statusCode) {
@@ -365,11 +400,34 @@ function endpointLabel(endpointMetric) {
   return String(endpointMetric && endpointMetric.endpoint_type ? endpointMetric.endpoint_type : 'unknown').toUpperCase();
 }
 
-function pickUserId(vu, iter) {
-  // Use contiguous range [USER_ID_MIN, USER_ID_MAX], deterministic by VU/ITER.
+function resolveUserIdRange(endpointType) {
+  const total = USER_ID_MAX >= USER_ID_MIN ? (USER_ID_MAX - USER_ID_MIN + 1n) : 1n;
+  const segment = dataSegmentForRequest(endpointType);
+  if (segment === 'all') {
+    return { min: USER_ID_MIN, max: USER_ID_MAX, segment: 'all' };
+  }
+
+  const index = segment === 'warmup'
+    ? 0n
+    : segment === 'sync'
+      ? 1n
+      : segment === 'async'
+        ? 2n
+        : 3n;
+  const startOffset = total * index / 4n;
+  const endOffsetExclusive = total * (index + 1n) / 4n;
+  return {
+    min: USER_ID_MIN + startOffset,
+    max: USER_ID_MIN + endOffsetExclusive - 1n,
+    segment: segment,
+  };
+}
+
+function pickUserId(vu, iter, rangeMin, rangeMax) {
+  const span = rangeMax >= rangeMin ? (rangeMax - rangeMin + 1n) : 1n;
   const cursor = BigInt((vu - 1) * 1000000 + iter);
-  const offset = USER_ID_SPAN > 0n ? (cursor % USER_ID_SPAN) : 0n;
-  return (USER_ID_MIN + offset).toString();
+  const offset = span > 0n ? (cursor % span) : 0n;
+  return (rangeMin + offset).toString();
 }
 
 function buildRandomRequestId(vu, iter) {
@@ -381,8 +439,9 @@ function buildRandomRequestId(vu, iter) {
 }
 
 export default function () {
-  const userId = pickUserId(__VU, __ITER);
   const endpointType = endpointTypeForScenario();
+  const userRange = resolveUserIdRange(endpointType);
+  const userId = pickUserId(__VU, __ITER, userRange.min, userRange.max);
   const endpoint = endpointType === 'sync'
     ? SYNC_ENDPOINT
     : endpointType === 'direct'
@@ -416,6 +475,7 @@ export default function () {
   const meta = stageMeta();
   const tags = {
     endpoint_type: endpointType,
+    data_segment: userRange.segment,
     scenario_name: exec.scenario.name || 'na',
     stage_index: meta.stageIndex,
     stage_start: meta.stageStart,
@@ -425,6 +485,7 @@ export default function () {
   };
   const endpointTags = {
     endpoint_type: endpointType,
+    data_segment: userRange.segment,
     scenario_name: exec.scenario.name || 'na',
   };
 
