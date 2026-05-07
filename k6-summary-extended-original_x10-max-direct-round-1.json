@@ -6,12 +6,12 @@
     "data_scale": "original_x10",
     "base_url": "http://192.168.50.10:8080",
     "test_round": "1",
-    "run_id": "1778181283696-723488"
+    "run_id": "1778181652190-556038"
   },
   "execution_window": {
-    "started_at": "2026-05-07T19:11:36.824Z",
-    "finished_at": "2026-05-07T19:14:43.697Z",
-    "total_duration_sec": 186.873,
+    "started_at": "2026-05-07T19:17:38.808Z",
+    "finished_at": "2026-05-07T19:20:52.191Z",
+    "total_duration_sec": 193.383,
     "effective_load_duration_sec": 180
   },
   "resource_monitoring": {
@@ -21,24 +21,24 @@
   "qps": {
     "iterations_rate": 12.494444444444444,
     "http_reqs_rate": 12.494444444444444,
-    "biz_success_qps": 3.1333333333333333,
-    "biz_accepted_qps": 11.977777777777778,
-    "estimated_limit_qps": 3.1333333333333333,
-    "extreme_qps": 3.1333333333333333
+    "biz_success_qps": 2.9055555555555554,
+    "biz_accepted_qps": 12.016666666666667,
+    "estimated_limit_qps": 2.9055555555555554,
+    "extreme_qps": 2.9055555555555554
   },
   "latency": {
-    "avg_ms": 5501.384851800805,
-    "p90_ms": 5833.110660000001,
-    "p95_ms": 43287.94473999998,
-    "p99_ms": 59999.068564,
-    "max_ms": 60000.2618
+    "avg_ms": 6194.713921965313,
+    "p90_ms": 11117.961040000004,
+    "p95_ms": 35788.36377999999,
+    "p99_ms": 59998.779812,
+    "max_ms": 60000.4759
   },
   "totals": {
     "total_requests": 2249,
-    "biz_success_count": 564,
-    "biz_accepted_count": 2156,
-    "biz_fail_count": 93,
-    "degraded_count": 1592,
+    "biz_success_count": 523,
+    "biz_accepted_count": 2163,
+    "biz_fail_count": 86,
+    "degraded_count": 1640,
     "status_503_count": 0,
     "dropped_iterations": 0
   },
